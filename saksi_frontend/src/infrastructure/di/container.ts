@@ -1,3 +1,4 @@
+import { HttpAuthRepository } from '../api/http_auth_repository'
 import { HttpSessionRepository } from '../api/http_session_repository'
 import { WorkletAudioRepository } from '../audio/worklet_audio_repository'
 import { WebSpeechRepository } from '../audio/web_speech_repository'
@@ -19,6 +20,7 @@ export const container = {
     session: sessionRepository,
     audio: audioRepository,
     speech: new WebSpeechRepository(),
+    auth: new HttpAuthRepository(),
   },
   usecases: {
     startSession: new StartSessionUseCase(sessionRepository),

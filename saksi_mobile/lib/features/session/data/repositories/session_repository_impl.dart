@@ -16,8 +16,8 @@ class SessionRepositoryImpl implements SessionRepository {
   final SessionWsDataSource _ws;
 
   @override
-  Future<Session> start(String officerId, String productId) async =>
-      SessionModel.fromJson(await _remote.startSession(officerId, productId));
+  Future<Session> start(String productId) async =>
+      SessionModel.fromJson(await _remote.startSession(productId));
 
   @override
   Future<Session> end(String sessionId) async =>

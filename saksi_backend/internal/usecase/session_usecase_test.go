@@ -28,6 +28,10 @@ func (f *fakeSessionRepo) ListByOfficer(domain.Context, string, int) ([]*domain.
 	return nil, nil
 }
 
+func (f *fakeSessionRepo) ListRecent(domain.Context, int) ([]*domain.Session, error) {
+	return nil, nil
+}
+
 type fakeSTT struct {
 	stop func()
 }

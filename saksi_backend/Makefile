@@ -1,4 +1,4 @@
-.PHONY: help db db-down db-reset migrate dev build test tidy psql
+.PHONY: help db db-down db-reset migrate dev build test tidy psql auth-secret
 
 # Muat konfigurasi lokal tanpa menaruh secret di source code atau command line.
 # File .env diabaikan Git.
@@ -34,3 +34,6 @@ test: ## Jalankan test
 
 tidy: ## Rapikan dependensi
 	go mod tidy
+
+auth-secret: ## Buat nilai acak untuk AUTH_SECRET
+	@head -c 32 /dev/urandom | base64

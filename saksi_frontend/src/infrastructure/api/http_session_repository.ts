@@ -1,10 +1,17 @@
 import type { SessionRepository } from '../../domain/repositories/session_repository'
 import type { Session } from '../../domain/entities/session'
 import type { ComplianceReport, Obligation } from '../../domain/entities/compliance'
+import { tokenStore } from './token_store'
 
 // `||`, bukan `??`: Vite mengisi variabel yang sengaja dikosongkan
 // dengan string kosong, dan string kosong berarti "pakai origin halaman".
 const API = import.meta.env.VITE_API_URL || window.location.origin
+
+/** Menyisipkan token bearer bila ada. */
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  const token = tokenStore.read()
+  return token ? { ...extra, Authorization: `Bearer ${token}` } : { ...extra }
+}
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -33,22 +40,29 @@ const toSession = (d: SessionDTO): Session => ({
 })
 
 export class HttpSessionRepository implements SessionRepository {
-  async start(officerId: string, productId: string): Promise<Session> {
+  // Pemilik sesi tidak dikirim klien: backend mengambilnya dari token supaya
+  // atribusi laporan tidak bisa diklaim sendiri oleh klien.
+  async start(productId: string): Promise<Session> {
     const res = await fetch(`${API}/api/sessions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ officer_id: officerId, product_id: productId }),
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ product_id: productId }),
     })
     return toSession(await json<SessionDTO>(res))
   }
 
   async end(sessionId: string): Promise<Session> {
-    const res = await fetch(`${API}/api/sessions/${sessionId}/end`, { method: 'POST' })
+    const res = await fetch(`${API}/api/sessions/${sessionId}/end`, {
+      method: 'POST',
+      headers: authHeaders(),
+    })
     return toSession(await json<SessionDTO>(res))
   }
 
   async report(sessionId: string): Promise<ComplianceReport> {
-    const res = await fetch(`${API}/api/sessions/${sessionId}/report`)
+    const res = await fetch(`${API}/api/sessions/${sessionId}/report`, {
+      headers: authHeaders(),
+    })
     const raw = await json<{
       session: SessionDTO
       obligations: Array<{ code: string; label: string; status: Obligation['status']; confidence: number; evidence_id?: string }>
@@ -73,8 +87,15 @@ export class HttpSessionRepository implements SessionRepository {
     }
   }
 
+  /** Daftar sesi terbaru untuk supervisor. */
+  async sessions(): Promise<Session[]> {
+    const res = await fetch(`${API}/api/sessions`, { headers: authHeaders() })
+    const raw = await json<SessionDTO[]>(res)
+    return (raw ?? []).map(toSession)
+  }
+
   async obligations(): Promise<Obligation[]> {
-    const res = await fetch(`${API}/api/obligations`)
+    const res = await fetch(`${API}/api/obligations`, { headers: authHeaders() })
     const raw = await json<Array<{ code: string; label: string; status: Obligation['status']; confidence: number }>>(res)
     return raw.map((o) => ({ code: o.code, label: o.label, status: o.status, confidence: o.confidence }))
   }

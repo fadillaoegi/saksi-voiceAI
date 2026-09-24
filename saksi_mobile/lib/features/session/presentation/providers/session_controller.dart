@@ -27,14 +27,17 @@ class SessionController extends Notifier<SessionState> {
     }
   }
 
-  Future<void> start(String officerId, String productId) async {
+  Future<void> start(String productId) async {
+    if (state.starting) return; // cegah ketukan ganda membuat dua sesi
+    state = state.copyWith(starting: true, clearError: true);
     try {
-      final session =
-          await ref.read(startSessionProvider)(officerId, productId);
+      final session = await ref.read(startSessionProvider)(productId);
       state = state.copyWith(session: session, clearError: true);
       await _listen(session.id);
     } catch (e) {
       state = state.copyWith(error: '$e');
+    } finally {
+      state = state.copyWith(starting: false);
     }
   }
 

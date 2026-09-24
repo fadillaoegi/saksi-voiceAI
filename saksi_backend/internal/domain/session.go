@@ -16,20 +16,20 @@ const (
 type SessionStatus string
 
 const (
-	StatusActive   SessionStatus = "active"
-	StatusEnded    SessionStatus = "ended"
-	StatusAborted  SessionStatus = "aborted"
+	StatusActive  SessionStatus = "active"
+	StatusEnded   SessionStatus = "ended"
+	StatusAborted SessionStatus = "aborted"
 )
 
 // Session adalah satu percakapan tatap muka petugas <-> nasabah.
 type Session struct {
-	ID         string
-	OfficerID  string
-	ProductID  string
-	Status     SessionStatus
-	StartedAt  time.Time
-	EndedAt    *time.Time
-	Score      int // 0-100, dihitung saat sesi berakhir
+	ID        string
+	OfficerID string
+	ProductID string
+	Status    SessionStatus
+	StartedAt time.Time
+	EndedAt   *time.Time
+	Score     int // 0-100, dihitung saat sesi berakhir
 }
 
 func (s *Session) IsRunning() bool { return s.Status == StatusActive }
@@ -39,4 +39,6 @@ type SessionRepository interface {
 	FindByID(ctx Context, id string) (*Session, error)
 	Update(ctx Context, s *Session) error
 	ListByOfficer(ctx Context, officerID string, limit int) ([]*Session, error)
+	// ListRecent dipakai supervisor untuk memilih sesi yang akan dipantau.
+	ListRecent(ctx Context, limit int) ([]*Session, error)
 }

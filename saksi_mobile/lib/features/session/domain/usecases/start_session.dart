@@ -5,10 +5,9 @@ class StartSessionUseCase {
   const StartSessionUseCase(this._repo);
   final SessionRepository _repo;
 
-  Future<Session> call(String officerId, String productId) {
-    if (officerId.trim().isEmpty) {
-      throw ArgumentError('ID petugas wajib diisi');
-    }
-    return _repo.start(officerId, productId);
-  }
+  /// Identitas petugas TIDAK lagi menjadi parameter: backend mengambilnya
+  /// dari token. Validasi "ID petugas wajib diisi" sengaja dihapus — dulu
+  /// wajar ketika ID diketik manusia, sekarang justru menolak permintaan
+  /// yang sah sebelum sempat dikirim.
+  Future<Session> call(String productId) => _repo.start(productId);
 }

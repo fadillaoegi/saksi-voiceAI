@@ -61,3 +61,24 @@ func (r *SessionRepo) ListByOfficer(ctx domain.Context, officerID string, limit 
 	}
 	return out, rows.Err()
 }
+
+func (r *SessionRepo) ListRecent(ctx domain.Context, limit int) ([]*domain.Session, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, officer_id, product_id, status, started_at, ended_at, score
+		FROM sessions ORDER BY started_at DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*domain.Session
+	for rows.Next() {
+		var s domain.Session
+		if err := rows.Scan(&s.ID, &s.OfficerID, &s.ProductID, &s.Status,
+			&s.StartedAt, &s.EndedAt, &s.Score); err != nil {
+			return nil, err
+		}
+		out = append(out, &s)
+	}
+	return out, rows.Err()
+}

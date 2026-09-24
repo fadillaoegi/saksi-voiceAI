@@ -7,6 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"io"
+	"log/slog"
+
+	"github.com/saksi/saksi_backend/internal/domain"
+	"github.com/saksi/saksi_backend/internal/usecase"
 )
 
 func TestSPAMenyajikanAssetDanFallbackRoute(t *testing.T) {
@@ -18,7 +24,7 @@ func TestSPAMenyajikanAssetDanFallbackRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	router := NewRouter(&Handler{}, http.NotFoundHandler(), "", dir)
+	router := NewRouter(&Handler{}, http.NotFoundHandler(), stubVerifier{}, "", dir, testLogger())
 
 	for _, path := range []string{"/", "/officer", "/supervisor/sesi-1"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -42,7 +48,7 @@ func TestSPATidakMenutupiAPIYangTidakDikenal(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("Bisik"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	router := NewRouter(&Handler{}, http.NotFoundHandler(), "", dir)
+	router := NewRouter(&Handler{}, http.NotFoundHandler(), stubVerifier{}, "", dir, testLogger())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tidak-ada", nil)
 	res := httptest.NewRecorder()
@@ -50,4 +56,16 @@ func TestSPATidakMenutupiAPIYangTidakDikenal(t *testing.T) {
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, mau 404", res.Code)
 	}
+}
+
+// stubVerifier menolak semua token: uji di berkas ini hanya memeriksa
+// penyajian SPA, bukan otorisasi.
+type stubVerifier struct{}
+
+func (stubVerifier) VerifyToken(string) (*usecase.TokenClaims, error) {
+	return nil, domain.ErrUnauthenticated
+}
+
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

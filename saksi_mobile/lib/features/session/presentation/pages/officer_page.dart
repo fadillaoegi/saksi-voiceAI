@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/bisik_theme.dart';
+import '../../../../core/theme/bisik_wave.dart';
+import '../../../auth/presentation/providers/auth_providers.dart';
 import '../providers/session_controller.dart';
 import '../providers/session_state.dart';
 import '../widgets/obligation_focus.dart';
@@ -16,20 +18,12 @@ class OfficerPage extends ConsumerStatefulWidget {
 }
 
 class _OfficerPageState extends ConsumerState<OfficerPage> {
-  final _officerId = TextEditingController(text: 'PTG-001');
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(sessionControllerProvider.notifier).loadObligations();
     });
-  }
-
-  @override
-  void dispose() {
-    _officerId.dispose();
-    super.dispose();
   }
 
   @override
@@ -42,6 +36,15 @@ class _OfficerPageState extends ConsumerState<OfficerPage> {
       appBar: AppBar(
         title: const Text('Bisik'),
         actions: [
+          // Keluar hanya saat tidak ada sesi berjalan: menutup sesi di tengah
+          // percakapan akan membuang skor yang belum sempat dihitung.
+          if (!running)
+            IconButton(
+              tooltip: 'Keluar',
+              icon: const Icon(Icons.logout, size: 20),
+              color: BisikColors.muted,
+              onPressed: ref.read(authControllerProvider.notifier).logout,
+            ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Center(
@@ -63,31 +66,61 @@ class _OfficerPageState extends ConsumerState<OfficerPage> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: running ? _buildActive(state, controller) : _buildIdle(controller),
+        child: running
+            ? _buildActive(state, controller)
+            : _buildIdle(state, controller),
       ),
     );
   }
 
-  Widget _buildIdle(SessionController controller) {
+  Widget _buildIdle(SessionState state, SessionController controller) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 32),
-        const Text('ID Petugas', style: TextStyle(color: BisikColors.muted)),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _officerId,
-          style: const TextStyle(color: BisikColors.text),
+        // Identitas petugas datang dari akun yang masuk, bukan dari isian.
+        // Kolom "ID Petugas" yang lama dihapus: kalau petugas boleh mengetik
+        // ID siapa pun, laporan kepatuhan tidak membuktikan siapa pelakunya.
+        Consumer(
+          builder: (context, ref, _) {
+            final name = ref.watch(
+              authControllerProvider.select((auth) => auth.user?.name),
+            );
+            return Text(
+              name == null ? '' : 'Masuk sebagai $name',
+              style: const TextStyle(color: BisikColors.muted, fontSize: 15),
+            );
+          },
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         FilledButton(
-          onPressed: () =>
-              controller.start(_officerId.text, 'KREDIT-MULTIGUNA'),
-          child: const Padding(
-            padding: EdgeInsets.all(12),
-            child: Text('Mulai sesi'),
+          // Dinonaktifkan selama proses berjalan: membuka sesi butuh HTTP,
+          // WebSocket, dan izin mikrofon, dan ketukan kedua akan membuat
+          // sesi kedua yang tidak pernah dipakai.
+          onPressed: state.starting
+              ? null
+              : () => controller.start('KREDIT-MULTIGUNA'),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: state.starting
+                ? const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      BisikWave(height: 18, color: BisikColors.accentInk),
+                      SizedBox(width: 12),
+                      Text('Membuka sesi…'),
+                    ],
+                  )
+                : const Text('Mulai sesi'),
           ),
         ),
+        // Kegagalan di sini dulu tidak pernah terlihat: error tersimpan di
+        // state tetapi layar idle tidak pernah menampilkannya, jadi tombolnya
+        // tampak mati padahal sebenarnya gagal menghubungi gateway.
+        if (state.error != null) ...[
+          const SizedBox(height: 16),
+          _Banner(text: state.error!, color: BisikColors.bad),
+        ],
       ],
     );
   }

@@ -1,4 +1,5 @@
 import type { SessionEvent } from '../../domain/entities/events'
+import { tokenStore } from '../api/token_store'
 
 // Lihat catatan di http_session_repository.ts soal `||` vs `??`.
 const WS_BASE = import.meta.env.VITE_WS_URL ||
@@ -16,7 +17,12 @@ export class SessionSocket {
 
   connect(
     sessionId: string,
-    role: SocketRole,
+    /**
+     * Sisa kontrak untuk klien: peran dipakai hook untuk memutuskan siapa
+     * mendengar bisikan. Server tidak memakainya sama sekali dan menentukan
+     * peran dari token, supaya klien tidak bisa mengaku petugas sesi lain.
+     */
+    _role: SocketRole,
     handlers: {
       onEvent: (e: SessionEvent) => void
       onOpen?: () => void
@@ -24,7 +30,13 @@ export class SessionSocket {
       onError?: (e: Event) => void
     },
   ): void {
-    const ws = new WebSocket(`${WS_BASE}/ws?session_id=${sessionId}&role=${role}`)
+    // Token lewat query karena browser tidak mengizinkan header kustom pada
+    // handshake WebSocket. Peran TIDAK dikirim lagi: server menentukannya
+    // dari token, supaya klien tidak bisa mengaku petugas sesi orang lain.
+    const token = tokenStore.read() ?? ''
+    const ws = new WebSocket(
+      `${WS_BASE}/ws?session_id=${sessionId}&token=${encodeURIComponent(token)}`,
+    )
     ws.binaryType = 'arraybuffer'
 
     ws.onopen = () => handlers.onOpen?.()

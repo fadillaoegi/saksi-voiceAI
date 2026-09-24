@@ -12,7 +12,9 @@ import (
 	adapterhttp "github.com/saksi/saksi_backend/internal/adapter/http"
 	"github.com/saksi/saksi_backend/internal/adapter/repository/postgres"
 	"github.com/saksi/saksi_backend/internal/adapter/ws"
+	"github.com/saksi/saksi_backend/internal/domain"
 	"github.com/saksi/saksi_backend/internal/infrastructure/assemblyai"
+	"github.com/saksi/saksi_backend/internal/infrastructure/auth"
 	"github.com/saksi/saksi_backend/internal/infrastructure/config"
 	"github.com/saksi/saksi_backend/internal/infrastructure/db"
 	"github.com/saksi/saksi_backend/internal/infrastructure/logger"
@@ -37,8 +39,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// AUTH_SECRET tidak punya nilai bawaan dengan sengaja. Rahasia bawaan
+	// yang ikut ter-commit berarti siapa pun bisa menandatangani token
+	// petugas mana pun — lebih berbahaya daripada gagal start.
+	if cfg.AuthSecret == "" {
+		log.Error("AUTH_SECRET wajib diisi; jalankan `make auth-secret` untuk membuatnya")
+		os.Exit(1)
+	}
+
 	// --- Wiring: infrastructure -> usecase -> adapter ---
 	sessionRepo := postgres.NewSessionRepo(pool)
+	userRepo := postgres.NewUserRepo(pool)
 	transcriptRepo := postgres.NewTranscriptRepo(pool)
 	complianceRepo := postgres.NewComplianceRepo(pool)
 
@@ -52,16 +63,37 @@ func main() {
 	matcher := assemblyai.NewLLMMatcher(cfg.AssemblyAIKey, cfg.LLMModel)
 	guard := assemblyai.NewPhraseGuard()
 
+	signer := auth.NewSigner(cfg.AuthSecret, time.Duration(cfg.AuthTTLH)*time.Hour)
+	authUC := usecase.NewAuthUsecase(userRepo, auth.PasswordHasher{}, signer)
+	socketAuth := usecase.NewSocketAuthorizer(signer, sessionRepo)
+
+	created, err := authUC.Seed(ctx, []usecase.SeedAccount{
+		{Username: cfg.SeedOfficerUser, Name: cfg.SeedOfficerName,
+			Role: domain.RoleOfficer, Password: cfg.SeedOfficerPassword},
+		{Username: cfg.SeedSupervisorUser, Name: cfg.SeedSupervisorName,
+			Role: domain.RoleSupervisor, Password: cfg.SeedSupervisorPasswd},
+	})
+	if err != nil {
+		log.Error("seed akun gagal", "err", err)
+		os.Exit(1)
+	}
+	if created > 0 {
+		log.Info("akun awal dibuat", "jumlah", created,
+			"petugas", cfg.SeedOfficerUser, "supervisor", cfg.SeedSupervisorUser)
+	}
+
 	hub := ws.NewHub(log)
 	nudger := ws.NewHubNudger(hub)
 
 	sessionUC := usecase.NewSessionUsecase(sessionRepo, complianceRepo, stt)
 	complianceUC := usecase.NewComplianceUsecase(complianceRepo, transcriptRepo, matcher, guard, nudger, hub)
 
-	wsHandler := ws.NewHandler(hub, stt, complianceUC, cfg.AllowedOrigins,
+	wsHandler := ws.NewHandler(hub, stt, complianceUC, socketAuth, cfg.AllowedOrigins,
 		time.Duration(cfg.NudgeIntervalS)*time.Second, log)
-	httpHandler := adapterhttp.NewHandler(sessionUC, sessionRepo, complianceRepo, transcriptRepo, log)
-	router := adapterhttp.NewRouter(httpHandler, wsHandler, cfg.AllowedOrigins, cfg.StaticDir)
+	httpHandler := adapterhttp.NewHandler(
+		sessionUC, sessionRepo, complianceRepo, transcriptRepo, authUC, log)
+	router := adapterhttp.NewRouter(
+		httpHandler, wsHandler, signer, cfg.AllowedOrigins, cfg.StaticDir, log)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

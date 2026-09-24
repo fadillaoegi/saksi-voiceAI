@@ -8,8 +8,13 @@ export class StartSessionUseCase {
     this.repo = repo
   }
 
-  async execute(officerId: string, productId: string): Promise<Session> {
-    if (!officerId.trim()) throw new Error('ID petugas wajib diisi')
-    return this.repo.start(officerId, productId)
+  /**
+   * Identitas petugas TIDAK lagi menjadi parameter: backend mengambilnya
+   * dari token. Validasi "ID petugas wajib diisi" sengaja dihapus — dulu
+   * wajar ketika ID diketik manusia, sekarang justru menolak permintaan
+   * yang sah sebelum sempat dikirim.
+   */
+  async execute(productId: string): Promise<Session> {
+    return this.repo.start(productId)
   }
 }

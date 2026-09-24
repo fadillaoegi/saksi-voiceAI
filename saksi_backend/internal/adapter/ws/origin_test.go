@@ -6,7 +6,7 @@ import (
 )
 
 func TestWebSocketMenerimaSameOriginDeployment(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "http://localhost:5173", 0, nil)
+	h := NewHandler(nil, nil, nil, nil, "http://localhost:5173", 0, nil)
 	req := httptest.NewRequest("GET", "https://bisik.onrender.com/ws", nil)
 	req.Host = "bisik.onrender.com"
 	req.Header.Set("Origin", "https://bisik.onrender.com")
@@ -16,7 +16,7 @@ func TestWebSocketMenerimaSameOriginDeployment(t *testing.T) {
 }
 
 func TestWebSocketMenolakOriginAsing(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "http://localhost:5173", 0, nil)
+	h := NewHandler(nil, nil, nil, nil, "http://localhost:5173", 0, nil)
 	req := httptest.NewRequest("GET", "https://bisik.onrender.com/ws", nil)
 	req.Host = "bisik.onrender.com"
 	req.Header.Set("Origin", "https://evil.example")

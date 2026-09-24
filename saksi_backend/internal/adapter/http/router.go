@@ -1,26 +1,50 @@
 package http
 
 import (
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/saksi/saksi_backend/internal/domain"
 )
 
-func NewRouter(h *Handler, wsHandler http.Handler, allowedOrigins, staticDir string) http.Handler {
+func NewRouter(
+	h *Handler, wsHandler http.Handler, verifier TokenVerifier,
+	allowedOrigins, staticDir string, log *slog.Logger,
+) http.Handler {
 	mux := http.NewServeMux()
 
+	// Siapa pun boleh: health check dan pintu masuk login.
 	mux.HandleFunc("GET /health", h.Health)
-	mux.HandleFunc("GET /api/obligations", h.Obligations)
-	mux.HandleFunc("POST /api/sessions", h.StartSession)
-	mux.HandleFunc("POST /api/sessions/{id}/end", h.EndSession)
-	mux.HandleFunc("GET /api/sessions/{id}/report", h.Report)
+	mux.HandleFunc("POST /api/auth/login", h.Login)
+
+	// Sudah login, peran apa pun.
+	loggedIn := requireAuth(verifier)
+	mux.HandleFunc("GET /api/auth/me", loggedIn(h.Me))
+	mux.HandleFunc("GET /api/obligations", loggedIn(h.Obligations))
+	// Otorisasi per sesi dilakukan di dalam handler: supervisor boleh membaca
+	// sesi mana pun, petugas hanya miliknya sendiri.
+	mux.HandleFunc("GET /api/sessions/{id}/report", loggedIn(h.Report))
+
+	// Khusus petugas: hanya petugas yang menjalankan dan mengakhiri sesi.
+	officerOnly := requireAuth(verifier, domain.RoleOfficer)
+	mux.HandleFunc("POST /api/sessions", officerOnly(h.StartSession))
+	mux.HandleFunc("POST /api/sessions/{id}/end", officerOnly(h.EndSession))
+
+	// Khusus supervisor: daftar sesi untuk dipantau.
+	supervisorOnly := requireAuth(verifier, domain.RoleSupervisor)
+	mux.HandleFunc("GET /api/sessions", supervisorOnly(h.ListSessions))
+
+	// WebSocket memverifikasi tokennya sendiri: browser tidak bisa
+	// menyetel header Authorization pada koneksi WebSocket.
 	mux.Handle("GET /ws", wsHandler)
 	if staticDir != "" {
 		mux.Handle("/", spa(staticDir))
 	}
 
-	return cors(mux, allowedOrigins)
+	return withLogging(cors(mux, allowedOrigins), log)
 }
 
 // spa menyajikan hasil build React dari container yang sama. Rute frontend

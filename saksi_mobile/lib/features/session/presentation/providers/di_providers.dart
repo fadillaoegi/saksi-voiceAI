@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/network/dio_client.dart';
+import '../../../auth/presentation/providers/auth_providers.dart';
 import '../../data/datasources/audio_datasource.dart';
 import '../../data/datasources/session_remote_datasource.dart';
 import '../../data/datasources/session_ws_datasource.dart';
@@ -12,13 +13,13 @@ import '../../domain/usecases/start_session.dart';
 import '../../domain/usecases/stream_session.dart';
 
 /// Composition root. Layer presentation hanya menyentuh use case.
-final dioProvider = Provider((ref) => createDio());
+final dioProvider = Provider((ref) => createDio(ref.watch(authTokenProvider)));
 
 final _remoteProvider =
     Provider((ref) => SessionRemoteDataSource(ref.watch(dioProvider)));
 
 final _wsProvider = Provider((ref) {
-  final ds = SessionWsDataSource();
+  final ds = SessionWsDataSource(ref.watch(authTokenProvider));
   ref.onDispose(ds.disconnect);
   return ds;
 });

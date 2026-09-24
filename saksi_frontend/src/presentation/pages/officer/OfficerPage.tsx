@@ -36,12 +36,17 @@ import {
   selectObligations,
   selectPartial,
   selectRecording,
+  selectAuthRestoring,
+  selectAuthUser,
   selectSession,
   selectSessionError,
   selectUtterances,
 } from '../../../application/store/selectors'
 import { ObligationList } from '../../components/ObligationList'
 import { ObligationFocus } from '../../components/ObligationFocus'
+import { BisikWave } from '../../components/BisikWave'
+import { LoginForm } from '../../components/LoginForm'
+import { loggedOut } from '../../../application/store/slices/authSlice'
 import { TranscriptView } from '../../components/TranscriptView'
 import { ScoreBadge } from '../../components/ScoreBadge'
 import { ReportView } from '../../components/ReportView'
@@ -59,18 +64,32 @@ export function OfficerPage() {
   const nudge = useAppSelector(selectLastNudge)
   const score = useAppSelector(selectLiveScore)
 
-  const [officerId, setOfficerId] = useState('PTG-001')
+  const authUser = useAppSelector(selectAuthUser)
+  const authRestoring = useAppSelector(selectAuthRestoring)
+  // Membuka sesi butuh HTTP lalu WebSocket lalu izin mikrofon. Tanpa penanda
+  // ini tombolnya terasa mati selama proses berjalan.
+  const [starting, setStarting] = useState(false)
+  // Gagal memuat daftar kewajiban BUKAN kegagalan sesi. Demo terarah tetap
+  // bisa diputar tanpa backend, jadi jangan sambut pengunjung dengan error
+  // merah yang membuat mereka mengira aplikasinya rusak.
+  const [gatewayDown, setGatewayDown] = useState(false)
   const [report, setReport] = useState<ComplianceReport | null>(null)
   const [reportError, setReportError] = useState<string | null>(null)
   const [demoMode, setDemoMode] = useState(false)
   const demoTimers = useRef<number[]>([])
 
+  // Endpoint ini butuh login, jadi jangan dipanggil sebelum ada sesi login —
+  // kalau tidak, 401 akan dilaporkan sebagai "gateway tidak bisa dihubungi".
   useEffect(() => {
+    if (!authUser) return
     container.repositories.session
       .obligations()
-      .then((o) => dispatch(obligationsLoaded(o)))
-      .catch(() => dispatch(sessionFailed('Gagal memuat daftar kewajiban')))
-  }, [dispatch])
+      .then((o) => {
+        dispatch(obligationsLoaded(o))
+        setGatewayDown(false)
+      })
+      .catch(() => setGatewayDown(true))
+  }, [dispatch, authUser])
 
   const stream = useSessionStream(
     session?.status === 'active' && !demoMode ? session.id : null,
@@ -96,6 +115,8 @@ export function OfficerPage() {
   }
 
   async function handleStart() {
+    if (starting) return // ketukan ganda akan membuat sesi kedua yang terbuang
+    setStarting(true)
     try {
       clearDemoTimers()
       setDemoMode(false)
@@ -103,10 +124,12 @@ export function OfficerPage() {
       dispatch(transcriptCleared())
       setReport(null)
       setReportError(null)
-      const s = await container.usecases.startSession.execute(officerId, 'KREDIT-MULTIGUNA')
+      const s = await container.usecases.startSession.execute('KREDIT-MULTIGUNA')
       dispatch(sessionStarted(s))
     } catch (e) {
       dispatch(sessionFailed((e as Error).message))
+    } finally {
+      setStarting(false)
     }
   }
 
@@ -213,11 +236,61 @@ export function OfficerPage() {
 
       {!session ? (
         <section className="start">
-          <label htmlFor="officer">ID Petugas</label>
-          <input id="officer" value={officerId} onChange={(e) => setOfficerId(e.target.value)} />
-          <button className="btn btn--primary" onClick={handleStart}>
-            Mulai sesi
-          </button>
+          {/* Login hanya menjaga SESI SUNGGUHAN. Demo terarah di bawah tetap
+              terbuka untuk siapa pun — dia tidak menyentuh backend sama
+              sekali, dan juri harus bisa mencobanya tanpa kredensial. */}
+          {authRestoring ? (
+            <p className="loading">
+              <BisikWave />
+              Memeriksa sesi login…
+            </p>
+          ) : !authUser ? (
+            <LoginForm
+              expects="officer"
+              title="Masuk sebagai petugas"
+              hint="Sesi dan laporannya akan tercatat atas nama akun ini."
+            />
+          ) : (
+            <>
+              <p className="whoami">
+                <span>
+                  Masuk sebagai <strong>{authUser.name}</strong>
+                </span>
+                <button
+                  className="btn--link"
+                  onClick={() => {
+                    container.repositories.auth.logout()
+                    dispatch(loggedOut())
+                  }}
+                >
+                  Keluar
+                </button>
+              </p>
+              <button className="btn btn--primary" onClick={handleStart} disabled={starting}>
+                {starting ? (
+                  <span className="btn__busy">
+                    <BisikWave />
+                    Membuka sesi…
+                  </span>
+                ) : (
+                  'Mulai sesi'
+                )}
+              </button>
+            </>
+          )}
+
+          {/* Kegagalan di sini dulu tidak pernah terlihat: error tersimpan di
+              store tetapi layar mulai tidak pernah menampilkannya, jadi
+              tombolnya tampak mati padahal gateway tidak bisa dihubungi. */}
+          {sessionError && <p className="error-box">{sessionError}</p>}
+
+          {gatewayDown && !sessionError && (
+            <p className="warn-box">
+              Gateway tidak bisa dihubungi, jadi sesi sungguhan belum bisa
+              dimulai. Demo terarah di bawah tetap berjalan penuh — dia tidak
+              memakai backend maupun API eksternal.
+            </p>
+          )}
           <div className="demo-entry">
             <span>atau</span>
             <button className="btn btn--secondary" onClick={handleDemo}>
@@ -233,7 +306,10 @@ export function OfficerPage() {
           ) : reportError ? (
             <p className="error-box">Laporan gagal dimuat: {reportError}</p>
           ) : (
-            <p className="muted">Menyiapkan laporan berbukti…</p>
+            <p className="loading">
+              <BisikWave />
+              Menyiapkan laporan berbukti…
+            </p>
           )}
           <button className="btn btn--primary btn--wide" onClick={handleNewSession}>
             Mulai sesi baru
@@ -251,6 +327,14 @@ export function OfficerPage() {
           {/* Kegagalan jalur audio harus terlihat: status "merekam" saja
               pernah menutupi sesi yang sebenarnya sudah mati. */}
           {sessionError && <p className="error-box">{sessionError}</p>}
+
+          {gatewayDown && !sessionError && (
+            <p className="warn-box">
+              Gateway tidak bisa dihubungi, jadi sesi sungguhan belum bisa
+              dimulai. Demo terarah di bawah tetap berjalan penuh — dia tidak
+              memakai backend maupun API eksternal.
+            </p>
+          )}
 
           {/* Audio tidak layak: checklist sengaja ditahan agar tidak ada
               centang hijau palsu. Petugas harus tahu sebabnya dan bisa

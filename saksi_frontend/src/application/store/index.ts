@@ -1,10 +1,12 @@
 import { configureStore } from '@reduxjs/toolkit'
+import authReducer from './slices/authSlice'
 import sessionReducer from './slices/sessionSlice'
 import transcriptReducer from './slices/transcriptSlice'
 import complianceReducer from './slices/complianceSlice'
 
 export const store = configureStore({
   reducer: {
+    auth: authReducer,
     session: sessionReducer,
     transcript: transcriptReducer,
     compliance: complianceReducer,

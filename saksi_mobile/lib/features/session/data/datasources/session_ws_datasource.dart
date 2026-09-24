@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../../../core/config/app_config.dart';
+import '../../../../core/network/auth_token.dart';
 import '../../domain/entities/session.dart';
 import '../../domain/entities/session_event.dart';
 import '../models/session_model.dart';
@@ -12,12 +13,19 @@ import '../models/session_model.dart';
 /// Satu koneksi WebSocket ke gateway Go.
 /// Keluar: frame PCM16 biner. Masuk: event JSON.
 class SessionWsDataSource {
+  SessionWsDataSource(this._token);
+
+  final AuthToken _token;
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _sub;
 
   Stream<SessionEvent> connect(String sessionId) {
+    // Token lewat query: handshake WebSocket tidak mengizinkan header kustom.
+    // Peran TIDAK dikirim lagi — server menentukannya dari token, supaya
+    // klien tidak bisa mengaku petugas atas sesi orang lain.
     final uri = Uri.parse(
-      '${AppConfig.wsUrl}/ws?session_id=$sessionId&role=officer',
+      '${AppConfig.wsUrl}/ws?session_id=$sessionId'
+      '&token=${Uri.encodeQueryComponent(_token.value ?? '')}',
     );
     final channel = WebSocketChannel.connect(uri);
     _channel = channel;

@@ -11,6 +11,11 @@ WebSocket dari backend yang sama.
 - Node 24 dan pnpm tersedia.
 - Flutter tersedia untuk pengujian mobile.
 - `ASSEMBLYAI_API_KEY` sudah terisi di `saksi_backend/.env`.
+- `AUTH_SECRET` sudah terisi di `saksi_backend/.env` — backend menolak start
+  kalau kosong. Buat dengan `cd saksi_backend && make auth-secret`.
+- `SEED_OFFICER_PASSWORD` dan `SEED_SUPERVISOR_PASSWORD` sudah terisi. Akun
+  hanya dibuat saat tabel `users` masih kosong; kalau sudah pernah dibuat,
+  mengubah variabel ini tidak mengubah kata sandinya.
 - Gunakan earphone saat tes live agar suara bisikan tidak masuk lagi ke mikrofon.
 
 Jangan menyalin API key ke terminal, screenshot, log, atau commit Git.
@@ -54,6 +59,67 @@ docker compose exec postgres psql -U saksi -d saksi -c \
 File `.env` lokal sudah tersedia. Jangan menjalankan `cp .env.example .env`
 karena dapat menimpa API key yang telah dipasang.
 
+## 2b. Akun petugas dan supervisor
+
+Akun awal dibuat otomatis saat backend pertama kali start dengan tabel `users`
+kosong. Log backend akan mencetak `akun awal dibuat`.
+
+| Peran | Nama pengguna bawaan | Kata sandi |
+|---|---|---|
+| Petugas | `petugas` | isi `SEED_OFFICER_PASSWORD` |
+| Supervisor | `supervisor` | isi `SEED_SUPERVISOR_PASSWORD` |
+
+Periksa akunnya sudah ada:
+
+```bash
+cd saksi_backend
+docker compose exec postgres psql -U saksi -d saksi -c \
+  "SELECT username, role FROM users ORDER BY role;"
+```
+
+Kalau tabelnya kosong padahal backend sudah jalan, berarti kedua variabel kata
+sandi masih kosong — akun tanpa kata sandi sengaja tidak dibuat.
+
+Untuk menguji dari nol setelah mengubah kata sandi seed:
+
+```bash
+docker compose exec postgres psql -U saksi -d saksi -c "DELETE FROM users;"
+```
+
+lalu restart backend.
+
+## 2c. Menguji pemisahan peran
+
+Ini membuktikan otorisasinya benar-benar ditegakkan, bukan sekadar disembunyikan UI.
+
+1. Masuk sebagai **petugas** di <http://localhost:5173/officer>, mulai satu sesi,
+   lalu salin ID sesinya dari log backend atau dari halaman supervisor.
+2. Di jendela penyamaran, buka <http://localhost:5173/supervisor> dan masuk
+   sebagai **supervisor**. Sesi tadi harus muncul di daftar **Sesi terbaru** —
+   tidak perlu lagi menyalin ID dari psql.
+3. Coba masuk sebagai supervisor di halaman `/officer`. Harus ditolak dengan
+   pesan bahwa halaman itu untuk petugas.
+4. Buktikan token benar-benar diperiksa, bukan hanya UI:
+
+   ```bash
+   # Tanpa token → 401
+   curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/api/obligations
+
+   # Dengan token petugas → 200
+   TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
+     -H 'Content-Type: application/json' \
+     -d '{"username":"petugas","password":"<sandi-petugas>"}' \
+     | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+   curl -s -o /dev/null -w '%{http_code}\n' \
+     -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/obligations
+
+   # Petugas mencoba daftar sesi milik supervisor → 403
+   curl -s -o /dev/null -w '%{http_code}\n' \
+     -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/sessions
+   ```
+
+   Hasil yang diharapkan berurutan: `401`, `200`, `403`.
+
 ## 3. Jalankan frontend PWA
 
 Buka terminal kedua dari root repository:
@@ -68,6 +134,9 @@ Buka:
 
 - Petugas: <http://localhost:5173/officer>
 - Supervisor: <http://localhost:5173/supervisor>
+
+Masuk dengan akun petugas dari §2b. **Demo terarah sengaja tetap bisa diputar
+tanpa login** — juri harus bisa mencobanya tanpa kredensial.
 
 Di halaman petugas tersedia dua jalur:
 
@@ -249,11 +318,15 @@ docker compose exec postgres psql -U saksi -d saksi -Atc \
   "SELECT id FROM sessions WHERE status='active' ORDER BY started_at DESC LIMIT 1;"
 ```
 
-Buka <http://localhost:5173/supervisor>, tempel ID, lalu klik **Pantau**.
-Transkrip dan pelanggaran baru harus muncul tanpa supervisor mengirim audio.
+Sejak autentikasi ditambahkan, ID sesi tidak perlu lagi disalin dari psql.
+Buka <http://localhost:5173/supervisor>, masuk sebagai supervisor, lalu pilih
+sesi dari daftar **Sesi terbaru**. Transkrip dan pelanggaran baru harus muncul
+tanpa supervisor mengirim audio.
 
-Catatan: halaman supervisor belum memuat snapshot checklist sebelum tersambung.
-Pengujian utama dan laporan akhir dilakukan dari halaman petugas.
+Catatan: daftar butir kewajiban kini dimuat saat mulai memantau, tetapi
+**progres yang sudah terjadi sebelum supervisor bergabung belum ditampilkan** —
+belum ada snapshot status checklist. Laporan akhir tetap diuji dari halaman
+petugas.
 
 ## 9. Menghentikan semua service
 
@@ -275,6 +348,9 @@ dan seluruh data lokal, jadi gunakan hanya saat ingin memulai dari nol.
 | `/health` tidak bisa dibuka | Docker Desktop, `docker compose ps`, dan terminal `make dev` |
 | Frontend gagal memuat kewajiban | Backend belum berjalan atau URL di `saksi_frontend/.env` salah |
 | `401`/`403` dari AssemblyAI | API key salah, kedaluwarsa, atau sudah dirotasi |
+| Backend menolak start | `AUTH_SECRET` kosong di `.env`; buat dengan `make auth-secret` |
+| Tidak bisa masuk, akun tidak dikenal | Tabel `users` kosong karena kata sandi seed belum diisi saat backend pertama start |
+| Semua permintaan `401` setelah restart | `AUTH_SECRET` berubah, jadi token lama tidak berlaku. Masuk ulang |
 | Mikrofon tidak merekam | Izin mikrofon browser/OS dan device input aktif |
 | Mobile tidak terhubung | Gunakan alamat target sesuai §4, bukan `localhost` untuk Android Emulator/HP fisik |
 | WebSocket terhubung tetapi tidak ada transkrip | Log backend dan kompatibilitas `whisper-rt` + diarization |

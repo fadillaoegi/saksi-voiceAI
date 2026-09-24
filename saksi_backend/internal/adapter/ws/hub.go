@@ -11,9 +11,9 @@ import (
 // Hub menyiarkan event ke semua klien yang menonton satu sesi
 // (PWA petugas + dashboard supervisor + app mobile).
 type Hub struct {
-	mu      sync.RWMutex
-	rooms   map[string]map[*Client]bool
-	log     *slog.Logger
+	mu    sync.RWMutex
+	rooms map[string]map[*Client]bool
+	log   *slog.Logger
 }
 
 type Client struct {

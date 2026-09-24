@@ -1,5 +1,8 @@
 import type { RootState } from './index'
 
+export const selectAuthUser = (s: RootState) => s.auth.user
+export const selectAuthRestoring = (s: RootState) => s.auth.restoring
+export const selectAuthError = (s: RootState) => s.auth.error
 export const selectSession = (s: RootState) => s.session.current
 export const selectConnected = (s: RootState) => s.session.connected
 export const selectRecording = (s: RootState) => s.session.recording

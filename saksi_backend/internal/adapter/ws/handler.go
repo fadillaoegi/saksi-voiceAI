@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -10,24 +11,33 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/saksi/saksi_backend/internal/domain"
 	"github.com/saksi/saksi_backend/internal/usecase"
 )
+
+// SessionAuthorizer memutuskan apakah pemegang token boleh menyambung ke
+// sebuah sesi, dan dengan peran apa.
+type SessionAuthorizer interface {
+	AuthorizeSocket(ctx context.Context, token, sessionID string) (domain.Role, error)
+}
 
 type Handler struct {
 	hub        *Hub
 	stt        usecase.SpeechToText
 	compliance *usecase.ComplianceUsecase
+	authorizer SessionAuthorizer
 	log        *slog.Logger
 	upgrader   websocket.Upgrader
 	nudgeEvery time.Duration
 }
 
-func NewHandler(hub *Hub, stt usecase.SpeechToText, c *usecase.ComplianceUsecase, allowedOrigins string, nudgeEvery time.Duration, log *slog.Logger) *Handler {
+func NewHandler(hub *Hub, stt usecase.SpeechToText, c *usecase.ComplianceUsecase, authorizer SessionAuthorizer, allowedOrigins string, nudgeEvery time.Duration, log *slog.Logger) *Handler {
 	origins := strings.Split(allowedOrigins, ",")
 	return &Handler{
 		hub:        hub,
 		stt:        stt,
 		compliance: c,
+		authorizer: authorizer,
 		log:        log,
 		nudgeEvery: nudgeEvery,
 		upgrader: websocket.Upgrader{
@@ -59,11 +69,29 @@ func NewHandler(hub *Hub, stt usecase.SpeechToText, c *usecase.ComplianceUsecase
 // ServeHTTP menangani GET /ws?session_id=...&role=officer|supervisor
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("session_id")
-	role := r.URL.Query().Get("role")
-	if sessionID == "" || (role != "officer" && role != "supervisor") {
-		http.Error(w, "session_id & role wajib", http.StatusBadRequest)
+	if sessionID == "" {
+		http.Error(w, "session_id wajib", http.StatusBadRequest)
 		return
 	}
+
+	// Token lewat query, bukan header: browser tidak mengizinkan header
+	// kustom pada handshake WebSocket. Konsekuensinya token bisa muncul di
+	// access log proxy, jadi umurnya harus pendek.
+	//
+	// Peran TIDAK diambil dari query. Dulu klien menyebutkan sendiri
+	// `role=officer`, artinya siapa pun bisa mengaku petugas dan mendorong
+	// audio ke sesi orang lain.
+	authorizedRole, err := h.authorizer.AuthorizeSocket(
+		r.Context(), r.URL.Query().Get("token"), sessionID)
+	if err != nil {
+		status := http.StatusForbidden
+		if errors.Is(err, domain.ErrUnauthenticated) {
+			status = http.StatusUnauthorized
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	role := string(authorizedRole)
 
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {

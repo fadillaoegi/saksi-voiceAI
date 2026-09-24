@@ -3,7 +3,8 @@ import '../entities/session.dart';
 import '../entities/session_event.dart';
 
 abstract interface class SessionRepository {
-  Future<Session> start(String officerId, String productId);
+  /// Pemilik sesi ditentukan token, bukan parameter.
+  Future<Session> start(String productId);
   Future<Session> end(String sessionId);
   Future<List<Obligation>> obligations();
 

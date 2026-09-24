@@ -25,6 +25,22 @@ services:
         value: claude-sonnet-4-6
       - key: NUDGE_INTERVAL_SECONDS
         value: "45"
+      # Menandatangani token bearer. Backend menolak start kalau kosong —
+      # sengaja, supaya tidak ada rahasia bawaan yang ikut ter-commit.
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: AUTH_TOKEN_TTL_HOURS
+        value: "12"
+      # Akun awal, hanya dibuat saat tabel users masih kosong.
+      # Kata sandi diisi manual di dashboard Render, tidak pernah di repo.
+      - key: SEED_OFFICER_USERNAME
+        value: petugas
+      - key: SEED_OFFICER_PASSWORD
+        sync: false
+      - key: SEED_SUPERVISOR_USERNAME
+        value: supervisor
+      - key: SEED_SUPERVISOR_PASSWORD
+        sync: false
 
 databases:
   - name: bisik-db

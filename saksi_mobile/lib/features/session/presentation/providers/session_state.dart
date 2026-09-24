@@ -11,6 +11,7 @@ class SessionState {
     this.lastNudge,
     this.connected = false,
     this.recording = false,
+    this.starting = false,
     this.error,
     this.warning,
   });
@@ -23,6 +24,11 @@ class SessionState {
   final String? lastNudge;
   final bool connected;
   final bool recording;
+
+  /// Sesi sedang dibuka: HTTP, WebSocket, dan mikrofon belum selesai.
+  /// Tanpa ini tombol "Mulai sesi" terasa mati selama beberapa detik.
+  final bool starting;
+
   final String? error;
 
   /// Peringatan non-fatal: bagian percakapan yang tidak dihitung sebagai bukti.
@@ -47,6 +53,7 @@ class SessionState {
     String? lastNudge,
     bool? connected,
     bool? recording,
+    bool? starting,
     String? error,
     String? warning,
     bool clearPartial = false,
@@ -62,6 +69,7 @@ class SessionState {
         lastNudge: lastNudge ?? this.lastNudge,
         connected: connected ?? this.connected,
         recording: recording ?? this.recording,
+        starting: starting ?? this.starting,
         error: clearError ? null : (error ?? this.error),
         warning: clearWarning ? null : (warning ?? this.warning),
       );

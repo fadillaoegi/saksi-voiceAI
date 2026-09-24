@@ -18,8 +18,8 @@ export default defineConfig({
         short_name: 'Bisik',
         description:
           'Kopilot privat yang mengingatkan petugas keuangan Indonesia sebelum kewajiban terlewat.',
-        theme_color: '#0d1117',
-        background_color: '#0d1117',
+        theme_color: '#0b1211',
+        background_color: '#0b1211',
         lang: 'id',
         display: 'standalone',
         orientation: 'portrait',
