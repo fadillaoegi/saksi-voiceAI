@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: bisik
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bisik-db
+          property: connectionString
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+      - key: ASSEMBLYAI_WS_URL
+        value: wss://streaming.assemblyai.com/v3/ws
+      - key: ASSEMBLYAI_SPEECH_MODEL
+        value: whisper-rt
+      - key: ASSEMBLYAI_SPEAKER_REVISION_INTERVAL_MS
+        value: "120000"
+      - key: LLM_MODEL
+        value: claude-sonnet-4-6
+      - key: NUDGE_INTERVAL_SECONDS
+        value: "45"
+
+databases:
+  - name: bisik-db
+    plan: free
+    region: singapore
+    databaseName: bisik
+    user: bisik
+    postgresMajorVersion: "18"
+    ipAllowList: []

@@ -1,0 +1,10 @@
+.DS_Store
+node_modules/
+dist/
+!saksi_frontend/dist/
+!saksi_frontend/dist/**
+bin/
+.env
+*.log
+.dart_tool/
+build/

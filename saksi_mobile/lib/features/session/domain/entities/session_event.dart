@@ -1,0 +1,52 @@
+import 'session.dart';
+
+/// Event realtime dari gateway Go.
+sealed class SessionEvent {
+  const SessionEvent();
+}
+
+class PartialReceived extends SessionEvent {
+  const PartialReceived(this.speaker, this.text);
+  final Speaker speaker;
+  final String text;
+}
+
+class UtteranceReceived extends SessionEvent {
+  const UtteranceReceived(this.utterance);
+  final Utterance utterance;
+}
+
+class SpeakerRevised extends SessionEvent {
+  const SpeakerRevised(this.utteranceId, this.speaker);
+  final String utteranceId;
+  final Speaker speaker;
+}
+
+class ObligationSatisfied extends SessionEvent {
+  const ObligationSatisfied(this.code, this.confidence, this.evidenceId);
+  final String code;
+  final double confidence;
+  final String evidenceId;
+}
+
+class ViolationDetected extends SessionEvent {
+  const ViolationDetected(this.phrase, this.severity, this.evidenceId);
+  final String phrase;
+  final String severity;
+  final String evidenceId;
+}
+
+class NudgeReceived extends SessionEvent {
+  const NudgeReceived(this.text);
+  final String text;
+}
+
+/// Jalur audio upstream berhenti sebelum petugas mengakhiri sesi.
+class SessionErrorReceived extends SessionEvent {
+  const SessionErrorReceived(this.message);
+  final String message;
+}
+
+class UnknownEvent extends SessionEvent {
+  const UnknownEvent();
+}
