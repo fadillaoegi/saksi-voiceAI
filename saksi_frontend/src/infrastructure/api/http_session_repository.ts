@@ -2,7 +2,9 @@ import type { SessionRepository } from '../../domain/repositories/session_reposi
 import type { Session } from '../../domain/entities/session'
 import type { ComplianceReport, Obligation } from '../../domain/entities/compliance'
 
-const API = import.meta.env.VITE_API_URL ?? window.location.origin
+// `||`, bukan `??`: Vite mengisi variabel yang sengaja dikosongkan
+// dengan string kosong, dan string kosong berarti "pakai origin halaman".
+const API = import.meta.env.VITE_API_URL || window.location.origin
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {

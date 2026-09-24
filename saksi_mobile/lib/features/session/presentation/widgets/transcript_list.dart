@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/bisik_theme.dart';
 import '../../domain/entities/session.dart';
 
 class TranscriptList extends StatelessWidget {
@@ -15,9 +16,9 @@ class TranscriptList extends StatelessWidget {
   };
 
   static const _colors = {
-    Speaker.officer: Color(0xFF2F81F7),
-    Speaker.customer: Color(0xFF3FB950),
-    Speaker.unknown: Color(0xFF8B949E),
+    Speaker.officer: BisikColors.officer,
+    Speaker.customer: BisikColors.customer,
+    Speaker.unknown: BisikColors.muted,
   };
 
   @override
@@ -25,8 +26,8 @@ class TranscriptList extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF161B22),
-        border: Border.all(color: const Color(0xFF272E38)),
+        color: BisikColors.surface,
+        border: Border.all(color: BisikColors.border),
         borderRadius: BorderRadius.circular(8),
       ),
       child: ListView.builder(
@@ -39,7 +40,7 @@ class TranscriptList extends StatelessWidget {
               child: Text(
                 partial!,
                 style: const TextStyle(
-                  color: Color(0xFF8B949E),
+                  color: BisikColors.muted,
                   fontStyle: FontStyle.italic,
                   fontSize: 13,
                 ),
@@ -53,7 +54,7 @@ class TranscriptList extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 8),
             child: RichText(
               text: TextSpan(
-                style: const TextStyle(fontSize: 13, color: Color(0xFFE6EDF3)),
+                style: const TextStyle(fontSize: 15, color: BisikColors.text),
                 children: [
                   TextSpan(
                     text: '${_labels[u.speaker]}  ',
@@ -66,7 +67,7 @@ class TranscriptList extends StatelessWidget {
                   if (u.revised)
                     const TextSpan(
                       text: '  (label direvisi)',
-                      style: TextStyle(color: Color(0xFFD29922), fontSize: 11),
+                      style: TextStyle(color: BisikColors.warn, fontSize: 11),
                     ),
                 ],
               ),

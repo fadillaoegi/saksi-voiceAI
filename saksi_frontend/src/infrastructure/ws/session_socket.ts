@@ -1,6 +1,7 @@
 import type { SessionEvent } from '../../domain/entities/events'
 
-const WS_BASE = import.meta.env.VITE_WS_URL ??
+// Lihat catatan di http_session_repository.ts soal `||` vs `??`.
+const WS_BASE = import.meta.env.VITE_WS_URL ||
   `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`
 
 export type SocketRole = 'officer' | 'supervisor'
@@ -55,6 +56,11 @@ export class SessionSocket {
       officer_label: officerLabel,
       customer_label: customerLabel,
     })
+  }
+
+  /** Melaporkan kualitas audio; alasan kosong berarti audio kembali sehat. */
+  reportAudioQuality(reason: string): void {
+    this.sendCommand({ type: 'audio_quality', reason })
   }
 
   private sendCommand(command: Record<string, string>): void {

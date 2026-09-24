@@ -182,18 +182,27 @@ type officerCommand struct {
 	Type          string `json:"type"`
 	OfficerLabel  string `json:"officer_label"`
 	CustomerLabel string `json:"customer_label"`
+	// Reason diisi klien saat melaporkan audio tidak layak; kosong = sehat.
+	Reason string `json:"reason"`
 }
 
 func (h *Handler) handleOfficerCommand(sessionID string, data []byte) {
+	var command officerCommand
+	if err := json.Unmarshal(data, &command); err != nil {
+		return
+	}
+
+	// Laporan kualitas audio tidak bergantung pada dukungan kalibrasi STT.
+	if command.Type == "audio_quality" {
+		h.compliance.SetAudioQuality(sessionID, command.Reason)
+		return
+	}
+
 	calibrator, ok := h.stt.(usecase.SpeakerRoleCalibrator)
 	if !ok {
 		h.hub.PublishTo(sessionID, "officer", map[string]any{
 			"type": "speaker_calibration_error", "message": "STT tidak mendukung kalibrasi",
 		})
-		return
-	}
-	var command officerCommand
-	if err := json.Unmarshal(data, &command); err != nil {
 		return
 	}
 

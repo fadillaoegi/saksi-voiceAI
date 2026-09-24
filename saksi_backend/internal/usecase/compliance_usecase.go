@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +31,11 @@ type ComplianceUsecase struct {
 	nudger      Nudger
 	broadcaster Broadcaster
 	obligations []domain.Obligation
+
+	// degraded menyimpan alasan audio sedang tidak layak per sesi.
+	// String kosong berarti audio sehat.
+	mu       sync.RWMutex
+	degraded map[string]string
 }
 
 func NewComplianceUsecase(
@@ -48,6 +54,7 @@ func NewComplianceUsecase(
 		nudger:      n,
 		broadcaster: b,
 		obligations: domain.DefaultObligations(),
+		degraded:    make(map[string]string),
 	}
 }
 
@@ -97,12 +104,62 @@ func (uc *ComplianceUsecase) HandleTranscript(ctx context.Context, sessionID str
 		"type": "utterance", "id": u.ID, "speaker": u.Speaker, "text": u.Text,
 	})
 
+	// Pembicara tidak dikenal: label di luar dua hasil kalibrasi, atau ucapan
+	// terlalu pendek sehingga diarization menyerah. Ucapannya tetap masuk
+	// transkrip sebagai jejak, tapi petugas harus tahu bagian ini tidak
+	// dihitung — supaya tidak mengira kewajibannya sudah tersampaikan.
+	if u.Speaker == domain.SpeakerUnknown {
+		uc.broadcaster.Publish(sessionID, map[string]any{
+			"type": "speaker_unknown", "utterance_id": u.ID, "text": u.Text,
+		})
+		return nil
+	}
+
 	// Butir kewajiban hanya bisa dipenuhi oleh PETUGAS, bukan nasabah.
 	if u.Speaker != domain.SpeakerOfficer {
 		return nil
 	}
+
+	// Guardrail tetap jalan walau audio buruk: frasa terlarang yang sempat
+	// tertranskrip lebih baik ditandai daripada dilewatkan diam-diam.
 	uc.inspectGuardrail(ctx, sessionID, u)
+
+	// Checklist TIDAK boleh terpenuhi dari audio yang tidak layak. Ini arah
+	// gagal yang aman: menunda centang hijau hanya merepotkan, sedangkan
+	// centang hijau palsu membuat laporan kepatuhan berbohong.
+	if reason := uc.degradedReason(sessionID); reason != "" {
+		uc.broadcaster.Publish(sessionID, map[string]any{
+			"type": "evidence_skipped", "utterance_id": u.ID, "reason": reason,
+		})
+		return nil
+	}
 	return uc.evaluateObligations(ctx, sessionID, u)
+}
+
+// SetAudioQuality dipanggil adapter saat klien melaporkan kualitas audio.
+// Alasan kosong berarti audio kembali sehat.
+func (uc *ComplianceUsecase) SetAudioQuality(sessionID, reason string) {
+	uc.mu.Lock()
+	previous := uc.degraded[sessionID]
+	if reason == "" {
+		delete(uc.degraded, sessionID)
+	} else {
+		uc.degraded[sessionID] = reason
+	}
+	uc.mu.Unlock()
+
+	if previous == reason {
+		return // jangan membanjiri UI dengan status yang sama
+	}
+	uc.broadcaster.Publish(sessionID, map[string]any{
+		"type": "audio_quality", "degraded": reason != "", "reason": reason,
+	})
+}
+
+func (uc *ComplianceUsecase) degradedReason(sessionID string) string {
+	uc.mu.RLock()
+	defer uc.mu.RUnlock()
+	return uc.degraded[sessionID]
 }
 
 // handleRevision menangani koreksi label pembicara dari AssemblyAI.
@@ -120,6 +177,9 @@ func (uc *ComplianceUsecase) handleRevision(ctx context.Context, sessionID strin
 	})
 
 	if ev.Speaker != domain.SpeakerOfficer {
+		return nil
+	}
+	if reason := uc.degradedReason(sessionID); reason != "" {
 		return nil
 	}
 	u, err := uc.transcripts.FindByID(ctx, ev.UtteranceID)

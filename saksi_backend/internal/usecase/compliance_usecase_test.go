@@ -291,3 +291,114 @@ func TestHandleTranscriptMengabaikanErrorMatcherTanpaFalseGreen(t *testing.T) {
 		t.Fatalf("error matcher tidak boleh menjadi tanda hijau: %v", compliance.marked)
 	}
 }
+
+// newComplianceTestUsecaseWithEvents sama dengan helper di atas, tetapi juga
+// mengembalikan broadcaster supaya event peringatan bisa diperiksa.
+func newComplianceTestUsecaseWithEvents(
+	states []*domain.ObligationState, matcher *matcherFake, guard *guardFake,
+) (*ComplianceUsecase, *complianceRepoFake, *broadcasterFake) {
+	compliance := &complianceRepoFake{states: states}
+	broadcaster := &broadcasterFake{}
+	uc := NewComplianceUsecase(
+		compliance, newTranscriptRepoFake(), matcher, guard, &nudgerFake{}, broadcaster,
+	)
+	return uc, compliance, broadcaster
+}
+
+func countEventType(events []any, eventType string) int {
+	n := 0
+	for _, event := range events {
+		if payload, ok := event.(map[string]any); ok && payload["type"] == eventType {
+			n++
+		}
+	}
+	return n
+}
+
+// Pembicara ketiga atau ucapan yang diarization-nya menyerah tidak boleh
+// memenuhi checklist: kalimat yang sama dari petugas memang lolos, jadi
+// satu-satunya pembeda adalah identitas pembicaranya.
+func TestHandleTranscriptPembicaraTidakDikenalTidakJadiBukti(t *testing.T) {
+	matcher := &matcherFake{matched: true, confidence: 0.99}
+	uc, compliance, broadcaster := newComplianceTestUsecaseWithEvents(
+		pendingState("RATE"), matcher, &guardFake{},
+	)
+
+	err := uc.HandleTranscript(context.Background(), "sesi-1", TranscriptEvent{
+		UtteranceID: "u-1", Speaker: domain.SpeakerUnknown,
+		Text: "Suku bunganya dua persen per bulan.", IsFinal: true,
+	})
+	if err != nil {
+		t.Fatalf("HandleTranscript(): %v", err)
+	}
+	if len(compliance.marked) != 0 {
+		t.Fatalf("marked = %v, mau kosong — suara tak dikenal bukan bukti", compliance.marked)
+	}
+	if matcher.calls != 0 {
+		t.Fatalf("matcher dipanggil %d kali, mau 0", matcher.calls)
+	}
+	if countEventType(broadcaster.events, "speaker_unknown") != 1 {
+		t.Fatal("petugas tidak diberi tahu ucapan itu dilewati")
+	}
+}
+
+// Audio tidak layak menahan checklist, tetapi pelanggaran tetap dicatat:
+// menahan centang hijau itu aman, membiarkan janji terlarang lolos tidak.
+func TestAudioTidakLayakMenahanChecklistTapiTetapMencatatPelanggaran(t *testing.T) {
+	matcher := &matcherFake{matched: true, confidence: 0.99}
+	guard := &guardFake{phrase: "pasti cair", severity: "high", found: true}
+	uc, compliance, broadcaster := newComplianceTestUsecaseWithEvents(
+		pendingState("RATE"), matcher, guard,
+	)
+
+	uc.SetAudioQuality("sesi-1", "Suara terlalu pelan dari mikrofon")
+
+	err := uc.HandleTranscript(context.Background(), "sesi-1", TranscriptEvent{
+		UtteranceID: "u-1", Speaker: domain.SpeakerOfficer,
+		Text: "Suku bunganya dua persen, dana pasti cair.", IsFinal: true,
+	})
+	if err != nil {
+		t.Fatalf("HandleTranscript(): %v", err)
+	}
+	if len(compliance.marked) != 0 {
+		t.Fatalf("marked = %v, mau kosong selama audio buruk", compliance.marked)
+	}
+	if matcher.calls != 0 {
+		t.Fatalf("matcher dipanggil %d kali, mau 0 — hemat panggilan LLM", matcher.calls)
+	}
+	if len(compliance.violations) != 1 {
+		t.Fatalf("violations = %d, mau 1 — guardrail harus tetap jalan", len(compliance.violations))
+	}
+	if countEventType(broadcaster.events, "evidence_skipped") != 1 {
+		t.Fatal("alasan ucapan dilewati tidak disampaikan ke petugas")
+	}
+
+	// Audio pulih: kalimat yang sama sekarang boleh dinilai.
+	uc.SetAudioQuality("sesi-1", "")
+	if err := uc.HandleTranscript(context.Background(), "sesi-1", TranscriptEvent{
+		UtteranceID: "u-2", Speaker: domain.SpeakerOfficer,
+		Text: "Suku bunganya dua persen per bulan.", IsFinal: true,
+	}); err != nil {
+		t.Fatalf("HandleTranscript(): %v", err)
+	}
+	if len(compliance.marked) != 1 || compliance.marked[0] != "RATE" {
+		t.Fatalf("marked = %v, mau [RATE] setelah audio pulih", compliance.marked)
+	}
+}
+
+func TestSetAudioQualityHanyaMenyiarkanSaatBerubah(t *testing.T) {
+	uc, _, broadcaster := newComplianceTestUsecaseWithEvents(
+		pendingState("RATE"), &matcherFake{}, &guardFake{},
+	)
+
+	uc.SetAudioQuality("sesi-1", "Suara terlalu pelan dari mikrofon")
+	uc.SetAudioQuality("sesi-1", "Suara terlalu pelan dari mikrofon")
+	if got := countEventType(broadcaster.events, "audio_quality"); got != 1 {
+		t.Fatalf("audio_quality disiarkan %d kali, mau 1 — jangan membanjiri UI", got)
+	}
+
+	uc.SetAudioQuality("sesi-1", "")
+	if got := countEventType(broadcaster.events, "audio_quality"); got != 2 {
+		t.Fatalf("audio_quality disiarkan %d kali, mau 2 — pemulihan harus diumumkan", got)
+	}
+}

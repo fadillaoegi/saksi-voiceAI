@@ -41,6 +41,14 @@ class NudgeReceived extends SessionEvent {
   final String text;
 }
 
+/// Bagian percakapan sengaja tidak dihitung sebagai bukti kepatuhan:
+/// pembicara tidak dikenal, atau audio tidak layak. Flutter belum punya
+/// panel khusus, jadi ketiganya masuk ke satu slot peringatan.
+class SessionWarningReceived extends SessionEvent {
+  const SessionWarningReceived(this.message);
+  final String message;
+}
+
 /// Jalur audio upstream berhenti sebelum petugas mengakhiri sesi.
 class SessionErrorReceived extends SessionEvent {
   const SessionErrorReceived(this.message);

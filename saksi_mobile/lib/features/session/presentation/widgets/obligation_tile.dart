@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/bisik_theme.dart';
 import '../../domain/entities/compliance.dart';
 
 class ObligationTile extends StatelessWidget {
@@ -10,9 +11,9 @@ class ObligationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (color, icon) = switch (obligation.status) {
-      ObligationStatus.satisfied => (const Color(0xFF3FB950), Icons.check_circle),
-      ObligationStatus.violated => (const Color(0xFFF85149), Icons.cancel),
-      ObligationStatus.pending => (const Color(0xFF8B949E), Icons.circle_outlined),
+      ObligationStatus.satisfied => (BisikColors.good, Icons.check_circle),
+      ObligationStatus.violated => (BisikColors.bad, Icons.cancel),
+      ObligationStatus.pending => (BisikColors.muted, Icons.circle_outlined),
     };
 
     return AnimatedContainer(
@@ -20,7 +21,7 @@ class ObligationTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF161B22),
+        color: BisikColors.surface,
         border: Border.all(color: color.withValues(alpha: 0.6)),
         borderRadius: BorderRadius.circular(8),
       ),
@@ -31,13 +32,13 @@ class ObligationTile extends StatelessWidget {
           Expanded(
             child: Text(
               obligation.label,
-              style: TextStyle(color: color, fontSize: 14),
+              style: TextStyle(color: color, fontSize: 15),
             ),
           ),
           if (obligation.status == ObligationStatus.satisfied)
             Text(
               '${(obligation.confidence * 100).round()}%',
-              style: const TextStyle(color: Color(0xFF8B949E), fontSize: 11),
+              style: const TextStyle(color: BisikColors.muted, fontSize: 12),
             ),
         ],
       ),

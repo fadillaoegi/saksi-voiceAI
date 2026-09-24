@@ -12,6 +12,7 @@ class SessionState {
     this.connected = false,
     this.recording = false,
     this.error,
+    this.warning,
   });
 
   final Session? session;
@@ -23,6 +24,9 @@ class SessionState {
   final bool connected;
   final bool recording;
   final String? error;
+
+  /// Peringatan non-fatal: bagian percakapan yang tidak dihitung sebagai bukti.
+  final String? warning;
 
   /// Skor sementara: % butir terpenuhi dikurangi 10 per pelanggaran.
   int get liveScore {
@@ -44,8 +48,10 @@ class SessionState {
     bool? connected,
     bool? recording,
     String? error,
+    String? warning,
     bool clearPartial = false,
     bool clearError = false,
+    bool clearWarning = false,
   }) =>
       SessionState(
         session: session ?? this.session,
@@ -57,5 +63,6 @@ class SessionState {
         connected: connected ?? this.connected,
         recording: recording ?? this.recording,
         error: clearError ? null : (error ?? this.error),
+        warning: clearWarning ? null : (warning ?? this.warning),
       );
 }

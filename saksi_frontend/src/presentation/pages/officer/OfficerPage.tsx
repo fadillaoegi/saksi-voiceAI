@@ -41,6 +41,7 @@ import {
   selectUtterances,
 } from '../../../application/store/selectors'
 import { ObligationList } from '../../components/ObligationList'
+import { ObligationFocus } from '../../components/ObligationFocus'
 import { TranscriptView } from '../../components/TranscriptView'
 import { ScoreBadge } from '../../components/ScoreBadge'
 import { ReportView } from '../../components/ReportView'
@@ -251,6 +252,22 @@ export function OfficerPage() {
               pernah menutupi sesi yang sebenarnya sudah mati. */}
           {sessionError && <p className="error-box">{sessionError}</p>}
 
+          {/* Audio tidak layak: checklist sengaja ditahan agar tidak ada
+              centang hijau palsu. Petugas harus tahu sebabnya dan bisa
+              memperbaikinya saat itu juga. */}
+          {!demoMode && stream.audioWarning && (
+            <p className="warn-box">
+              ⚠️ {stream.audioWarning} · penilaian ditahan sampai audio membaik
+            </p>
+          )}
+
+          {!demoMode && stream.excludedCount > 0 && (
+            <p className="warn-box warn-box--muted">
+              {stream.excludedCount} ucapan tidak dihitung sebagai bukti — suara
+              tidak dikenali atau audio tidak layak. Ulangi bagian itu.
+            </p>
+          )}
+
           {!demoMode && stream.calibrationStatus !== 'confirmed' ? (
             <SpeakerCalibration
               samples={stream.calibrationSamples}
@@ -264,8 +281,19 @@ export function OfficerPage() {
               {/* Bisikan ditampilkan sekaligus diucapkan ke earpiece */}
               {nudge && <div className="nudge">🔈 {nudge}</div>}
 
-              <ObligationList items={obligations} />
-              <TranscriptView utterances={utterances} partial={partial} />
+              <ObligationFocus items={obligations} />
+
+              {/* Rincian dan transkrip diturunkan ke balik disclosure: saat
+                  sesi berjalan keduanya mengganggu, saat meninjau berguna.
+                  Di mode demo transkrip dibuka supaya juri melihat buktinya. */}
+              <details className="disclosure">
+                <summary>Rincian kewajiban</summary>
+                <ObligationList items={obligations} />
+              </details>
+              <details className="disclosure" open={demoMode}>
+                <summary>Transkrip</summary>
+                <TranscriptView utterances={utterances} partial={partial} />
+              </details>
             </>
           )}
 

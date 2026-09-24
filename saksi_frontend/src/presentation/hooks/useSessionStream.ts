@@ -29,6 +29,10 @@ export function useSessionStream(sessionId: string | null, role: SocketRole) {
     Array<{ sourceSpeaker: string; text: string }>
   >([])
   const [calibrationError, setCalibrationError] = useState<string | null>(null)
+  const [audioWarning, setAudioWarning] = useState<string | null>(null)
+  // Berapa ucapan yang sengaja tidak dihitung sebagai bukti. Angka ini harus
+  // terlihat petugas: checklist yang diam bukan berarti sistemnya rusak.
+  const [excludedCount, setExcludedCount] = useState(0)
 
   const handleEvent = useCallback(
     (e: SessionEvent) => {
@@ -82,6 +86,13 @@ export function useSessionStream(sessionId: string | null, role: SocketRole) {
             }),
           )
           break
+        case 'audio_quality':
+          setAudioWarning(e.degraded ? e.reason : null)
+          break
+        case 'speaker_unknown':
+        case 'evidence_skipped':
+          setExcludedCount((n) => n + 1)
+          break
         case 'session_error':
           // Jalur audio mati: hentikan indikator merekam dan tampilkan
           // sebabnya, jangan biarkan UI terlihat masih menyimak.
@@ -110,7 +121,10 @@ export function useSessionStream(sessionId: string | null, role: SocketRole) {
         // diperlakukan sebagai kalibrasi, bukan otomatis sebagai petugas.
         container.socket.beginSpeakerCalibration()
         container.usecases.streamAudio
-          .start((pcm) => container.socket.sendAudio(pcm))
+          .start(
+            (pcm) => container.socket.sendAudio(pcm),
+            (reason) => container.socket.reportAudioQuality(reason),
+          )
           .then(() => dispatch(recordingChanged(true)))
           .catch((err: Error) => dispatch(sessionFailed(err.message)))
       },
@@ -134,5 +148,12 @@ export function useSessionStream(sessionId: string | null, role: SocketRole) {
     container.socket.confirmSpeakerRoles(officerLabel, customerLabel)
   }, [])
 
-  return { calibrationStatus, calibrationSamples, calibrationError, confirmSpeakerRoles }
+  return {
+    calibrationStatus,
+    calibrationSamples,
+    calibrationError,
+    confirmSpeakerRoles,
+    audioWarning,
+    excludedCount,
+  }
 }

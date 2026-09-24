@@ -189,3 +189,50 @@ func TestDrainAudioMembuangSisaTerlaluPendek(t *testing.T) {
 		t.Fatal("drain kedua harus kosong")
 	}
 }
+
+// Setelah manusia mengunci mapping A/B, label ketiga berarti ada orang lain
+// ikut bicara. Dia tidak boleh mewarisi role siapa pun — termasuk nasabah —
+// karena transkrip akan berbohong soal siapa yang mengucapkan apa.
+func TestLabelKetigaSetelahKonfirmasiJadiUnknown(t *testing.T) {
+	stt := NewStreamingSTT("key", "ws://example.test", "whisper-rt", 120000, testLogger())
+	stt.speakers["sesi-1"] = &speakerSession{
+		roles: map[string]domain.Speaker{}, calibrationTurns: map[int]struct{}{},
+	}
+
+	if err := stt.ConfirmSpeakerRoles("sesi-1", "A", "B"); err != nil {
+		t.Fatalf("ConfirmSpeakerRoles(): %v", err)
+	}
+
+	if role, _ := stt.resolveSpeaker("sesi-1", "A", 1); role != domain.SpeakerOfficer {
+		t.Fatalf("label A = %q, mau officer", role)
+	}
+	if role, _ := stt.resolveSpeaker("sesi-1", "B", 2); role != domain.SpeakerCustomer {
+		t.Fatalf("label B = %q, mau customer", role)
+	}
+	if role, _ := stt.resolveSpeaker("sesi-1", "C", 3); role != domain.SpeakerUnknown {
+		t.Fatalf("label C = %q, mau unknown — pembicara ketiga bukan role terkalibrasi", role)
+	}
+}
+
+// Klien lama (Flutter) belum punya UI kalibrasi, jadi fallback urutan bicara
+// harus tetap hidup selama mapping belum pernah dikonfirmasi manusia.
+func TestFallbackUrutanBicaraTetapBerlakuTanpaKonfirmasi(t *testing.T) {
+	stt := NewStreamingSTT("key", "ws://example.test", "whisper-rt", 120000, testLogger())
+	stt.speakers["sesi-1"] = &speakerSession{
+		roles: map[string]domain.Speaker{}, calibrationTurns: map[int]struct{}{},
+	}
+
+	if role, _ := stt.resolveSpeaker("sesi-1", "A", 1); role != domain.SpeakerOfficer {
+		t.Fatalf("pembicara pertama = %q, mau officer", role)
+	}
+	if role, _ := stt.resolveSpeaker("sesi-1", "B", 2); role != domain.SpeakerCustomer {
+		t.Fatalf("pembicara kedua = %q, mau customer", role)
+	}
+}
+
+func TestMaxSpeakersMenyediakanSlotOrangKetiga(t *testing.T) {
+	stt := NewStreamingSTT("key", "ws://example.test", "whisper-rt", 120000, testLogger())
+	if got := stt.connectionParams().Get("max_speakers"); got != "3" {
+		t.Fatalf("max_speakers = %q, mau 3 — batas 2 memaksa orang ketiga jadi role terkalibrasi", got)
+	}
+}

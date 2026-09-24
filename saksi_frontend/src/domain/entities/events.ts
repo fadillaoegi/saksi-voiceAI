@@ -14,3 +14,6 @@ export type SessionEvent =
   | { type: 'violation'; phrase: string; severity: string; evidence_id: string }
   | { type: 'nudge'; text: string }
   | { type: 'session_error'; message: string }
+  | { type: 'speaker_unknown'; utterance_id: string; text: string }
+  | { type: 'evidence_skipped'; utterance_id: string; reason: string }
+  | { type: 'audio_quality'; degraded: boolean; reason: string }

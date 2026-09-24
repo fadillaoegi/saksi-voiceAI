@@ -1,4 +1,7 @@
-import type { AudioRepository } from '../../domain/repositories/audio_repository'
+import type {
+  AudioQualityReason,
+  AudioRepository,
+} from '../../domain/repositories/audio_repository'
 
 /**
  * Menyalurkan frame PCM16 dari mikrofon ke gateway.
@@ -11,8 +14,11 @@ export class StreamAudioUseCase {
     this.audio = audio
   }
 
-  start(sink: (pcm: ArrayBuffer) => void): Promise<void> {
-    return this.audio.start(sink)
+  start(
+    sink: (pcm: ArrayBuffer) => void,
+    onQuality?: (reason: AudioQualityReason) => void,
+  ): Promise<void> {
+    return this.audio.start(sink, onQuality)
   }
 
   stop(): Promise<void> {

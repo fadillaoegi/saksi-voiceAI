@@ -84,6 +84,17 @@ class SessionWsDataSource {
           json['evidence_id'] as String? ?? '',
         ),
       'nudge' => NudgeReceived(json['text'] as String? ?? ''),
+      'speaker_unknown' => const SessionWarningReceived(
+          'Ada ucapan dari suara yang tidak dikenali — tidak dihitung sebagai bukti',
+        ),
+      'evidence_skipped' => SessionWarningReceived(
+          'Ucapan dilewati: ${json['reason'] as String? ?? 'audio tidak layak'}',
+        ),
+      'audio_quality' => (json['degraded'] as bool? ?? false)
+          ? SessionWarningReceived(
+              '${json['reason'] as String? ?? 'Audio tidak layak'} — penilaian ditahan',
+            )
+          : const SessionWarningReceived(''),
       'session_error' => SessionErrorReceived(
           json['message'] as String? ?? 'Jalur audio terputus',
         ),

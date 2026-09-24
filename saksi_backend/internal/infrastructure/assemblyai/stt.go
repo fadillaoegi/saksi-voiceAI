@@ -46,6 +46,9 @@ type speakerSession struct {
 	roles            map[string]domain.Speaker
 	calibrating      bool
 	calibrationTurns map[int]struct{}
+	// confirmed menandai manusia sudah mengunci mapping role. Setelah ini,
+	// label baru berarti pembicara ketiga — bukan role yang belum terisi.
+	confirmed bool
 }
 
 type streamConnection struct {
@@ -162,6 +165,8 @@ const (
 	MinimumFrameBytes         = 1600
 	MaximumFrameBytes         = 32000
 	MinimumRevisionIntervalMS = 120000
+	// MaxSpeakers 3 = dua role terkalibrasi + satu slot penampung orang ketiga.
+	MaxSpeakers = 3
 )
 
 // connectionParams dipisahkan agar kontrak koneksi dapat diuji tanpa
@@ -175,9 +180,13 @@ func (s *StreamingSTT) connectionParams() url.Values {
 	if s.model == "universal-streaming-english" || s.model == "universal-streaming-multilingual" {
 		q.Set("format_turns", "true")
 	}
-	// Diarization: percakapan ini selalu dua orang — petugas & nasabah.
+	// Diarization. Batas sengaja 3, bukan 2: percakapannya memang dua orang,
+	// tetapi kalau ada orang ketiga yang menyela, batas 2 memaksa suaranya
+	// dijejalkan ke salah satu role terkalibrasi — dan ucapan orang asing
+	// bisa terhitung sebagai kepatuhan petugas. Dengan batas 3 dia mendapat
+	// label sendiri, lalu kita tolak sebagai pembicara tidak dikenal.
 	q.Set("speaker_labels", "true")
-	q.Set("max_speakers", "2")
+	q.Set("max_speakers", strconv.Itoa(MaxSpeakers))
 	// Dokumentasi terbaru menetapkan minimum 120 detik; nilai lebih kecil
 	// otomatis dinaikkan server. Revisi final tetap datang saat Terminate.
 	q.Set("speaker_labels_revision_interval_ms", strconv.Itoa(s.revisionIntervalMS))
@@ -317,6 +326,13 @@ func (s *StreamingSTT) resolveSpeaker(sessionID, label string, turnOrder int) (d
 	if role, ok := state.roles[label]; ok {
 		return role, false
 	}
+	// Mapping sudah dikunci manusia, tetapi muncul label di luar keduanya.
+	// Itu pembicara ketiga/pengamat. Dia tidak boleh mewarisi role siapa pun:
+	// dianggap nasabah pun salah, karena transkrip jadi berbohong soal siapa
+	// yang bicara. Kembalikan unknown supaya scoring melewatinya.
+	if state.confirmed {
+		return domain.SpeakerUnknown, false
+	}
 	// Fallback untuk klien lama yang belum menjalankan kalibrasi.
 	if len(state.roles) == 0 {
 		state.roles[label] = domain.SpeakerOfficer
@@ -361,6 +377,7 @@ func (s *StreamingSTT) BeginSpeakerCalibration(sessionID string) error {
 	state.roles = make(map[string]domain.Speaker)
 	state.calibrationTurns = make(map[int]struct{})
 	state.calibrating = true
+	state.confirmed = false
 	return nil
 }
 
@@ -381,6 +398,7 @@ func (s *StreamingSTT) ConfirmSpeakerRoles(sessionID, officerLabel, customerLabe
 		customerLabel: domain.SpeakerCustomer,
 	}
 	state.calibrating = false
+	state.confirmed = true
 	return nil
 }
 

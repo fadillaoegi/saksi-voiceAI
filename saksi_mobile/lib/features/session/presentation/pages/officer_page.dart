@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/theme/bisik_theme.dart';
 import '../providers/session_controller.dart';
 import '../providers/session_state.dart';
+import '../widgets/obligation_focus.dart';
 import '../widgets/obligation_tile.dart';
 import '../widgets/transcript_list.dart';
 
@@ -37,10 +39,8 @@ class _OfficerPageState extends ConsumerState<OfficerPage> {
     final running = state.session?.isRunning ?? false;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0D1117),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0D1117),
-        title: const Text('Saksi'),
+        title: const Text('Bisik'),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16),
@@ -51,9 +51,9 @@ class _OfficerPageState extends ConsumerState<OfficerPage> {
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: switch (state.liveScore) {
-                    >= 80 => const Color(0xFF3FB950),
-                    >= 50 => const Color(0xFFD29922),
-                    _ => const Color(0xFFF85149),
+                    >= 80 => BisikColors.good,
+                    >= 50 => BisikColors.warn,
+                    _ => BisikColors.bad,
                   },
                 ),
               ),
@@ -73,16 +73,11 @@ class _OfficerPageState extends ConsumerState<OfficerPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 32),
-        const Text('ID Petugas', style: TextStyle(color: Color(0xFF8B949E))),
+        const Text('ID Petugas', style: TextStyle(color: BisikColors.muted)),
         const SizedBox(height: 8),
         TextField(
           controller: _officerId,
-          style: const TextStyle(color: Color(0xFFE6EDF3)),
-          decoration: const InputDecoration(
-            filled: true,
-            fillColor: Color(0xFF161B22),
-            border: OutlineInputBorder(),
-          ),
+          style: const TextStyle(color: BisikColors.text),
         ),
         const SizedBox(height: 16),
         FilledButton(
@@ -105,59 +100,70 @@ class _OfficerPageState extends ConsumerState<OfficerPage> {
           children: [
             Icon(Icons.circle,
                 size: 8,
-                color: state.connected
-                    ? const Color(0xFF3FB950)
-                    : const Color(0xFF8B949E)),
+                color: state.connected ? BisikColors.good : BisikColors.muted),
             const SizedBox(width: 8),
             Text(
               '${state.connected ? "Terhubung" : "Menyambung…"} · '
               '${state.recording ? "merekam" : "mic mati"}',
-              style: const TextStyle(color: Color(0xFF8B949E), fontSize: 12),
+              style: const TextStyle(color: BisikColors.muted, fontSize: 13),
             ),
           ],
         ),
+        if (state.error != null) ...[
+          const SizedBox(height: 12),
+          _Banner(text: state.error!, color: BisikColors.bad),
+        ],
+        // Bagian yang tidak dihitung sebagai bukti harus terlihat: checklist
+        // yang diam tanpa penjelasan membuat petugas mengira sistemnya rusak.
+        if (state.warning != null) ...[
+          const SizedBox(height: 12),
+          _Banner(text: state.warning!, color: BisikColors.warn),
+        ],
         if (state.lastNudge != null) ...[
           const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0x1FD29922),
-              border: Border.all(color: const Color(0xFFD29922)),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.volume_up,
-                    size: 18, color: Color(0xFFD29922)),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    state.lastNudge!,
-                    style: const TextStyle(
-                      color: Color(0xFFD29922),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          _Banner(
+            text: state.lastNudge!,
+            color: BisikColors.warn,
+            icon: Icons.volume_up,
           ),
         ],
         const SizedBox(height: 16),
-        for (final o in state.obligations) ObligationTile(obligation: o),
-        const SizedBox(height: 12),
+        ObligationFocus(obligations: state.obligations),
+        const SizedBox(height: 8),
+        // Rincian dan transkrip diturunkan ke balik disclosure: saat sesi
+        // berjalan keduanya mengganggu, saat meninjau baru berguna.
         Expanded(
-          child: TranscriptList(
-            utterances: state.utterances,
-            partial: state.partial,
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              _Disclosure(
+                title: 'Rincian kewajiban',
+                child: Column(
+                  children: [
+                    for (final o in state.obligations)
+                      ObligationTile(obligation: o),
+                  ],
+                ),
+              ),
+              _Disclosure(
+                title: 'Transkrip',
+                child: SizedBox(
+                  height: 260,
+                  child: TranscriptList(
+                    utterances: state.utterances,
+                    partial: state.partial,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 12),
         OutlinedButton(
           onPressed: controller.end,
           style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFFF85149),
-            side: const BorderSide(color: Color(0xFFF85149)),
+            foregroundColor: BisikColors.bad,
+            side: const BorderSide(color: BisikColors.bad),
           ),
           child: const Padding(
             padding: EdgeInsets.all(12),
@@ -165,6 +171,65 @@ class _OfficerPageState extends ConsumerState<OfficerPage> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _Banner extends StatelessWidget {
+  const _Banner({required this.text, required this.color, this.icon});
+
+  final String text;
+  final Color color;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        border: Border.all(color: color),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 10),
+          ],
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(color: color, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Disclosure extends StatelessWidget {
+  const _Disclosure({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: BisikColors.border),
+      child: ExpansionTile(
+        title: Text(
+          title,
+          style: const TextStyle(color: BisikColors.muted, fontSize: 14),
+        ),
+        iconColor: BisikColors.muted,
+        collapsedIconColor: BisikColors.muted,
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 12),
+        children: [child],
+      ),
     );
   }
 }

@@ -124,6 +124,10 @@ class SessionController extends Notifier<SessionState> {
         state = state.copyWith(lastNudge: text);
         unawaited(ref.read(speechRepositoryProvider).whisper(text));
 
+      // Pesan kosong = kondisi sudah pulih, bersihkan peringatannya.
+      case SessionWarningReceived(:final message):
+        state = state.copyWith(warning: message, clearWarning: message.isEmpty);
+
       // Jalur audio mati: hentikan indikator merekam supaya petugas tidak
       // mengira sesi masih disimak.
       case SessionErrorReceived(:final message):
