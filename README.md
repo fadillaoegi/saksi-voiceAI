@@ -16,7 +16,11 @@ Pelanggaran tetap tercatat untuk supervisor. Mencegah bukan berarti menghapus je
 
 ## Coba sendiri
 
-**Demo terarah · 9 detik.** Buka `/officer`, klik **Putar demo terarah**. Berjalan sepenuhnya di browser — tanpa mikrofon, tanpa backend, tanpa API eksternal. Percakapan contoh memicu janji terlarang, bisikan koreksi, pemenuhan lima kewajiban, lalu laporan berbukti. Semua layarnya diberi label tegas sebagai simulasi.
+**Demo terarah · 11 detik.** Buka `/officer`, klik **Putar demo terarah**. Berjalan sepenuhnya di browser — tanpa mikrofon, tanpa backend, tanpa API eksternal.
+
+Alurnya memperlihatkan seluruh mekanisme: petugas mengucapkan janji terlarang → bisikan koreksi masuk privat → kewajiban terpenuhi satu per satu → **diarization salah melabeli kalimat petugas sebagai nasabah, checklist sengaja tetap diam** → AssemblyAI mengoreksi labelnya, ucapan itu dinilai ulang, dua kewajiban terakhir baru berubah hijau → laporan berbukti.
+
+Babak koreksi label itu bukan hiasan. Tanpa penilaian ulang setelah revisi, koreksi diarization justru membuat laporan kepatuhan salah. Semua layar diberi label tegas sebagai simulasi.
 
 **Sesi sungguhan.** Masuk sebagai petugas, lalu klik **Mulai sesi** untuk menjalankan mikrofon, AssemblyAI, rule engine, dan laporan yang sebenarnya. Butuh backend berjalan, `ASSEMBLYAI_API_KEY` terisi, dan akun petugas. Demo terarah sengaja tetap terbuka tanpa login.
 

@@ -32,13 +32,23 @@ const transcriptSlice = createSlice({
         u.revised = true
       }
     },
+    /** Mengisi transkrip dari snapshot sesi yang sudah berjalan. */
+    transcriptLoaded(state, action: PayloadAction<Utterance[]>) {
+      state.utterances = action.payload
+      state.partial = null
+    },
     transcriptCleared() {
       return initialState
     },
   },
 })
 
-export const { partialReceived, utteranceAppended, speakerRevised, transcriptCleared } =
-  transcriptSlice.actions
+export const {
+  partialReceived,
+  utteranceAppended,
+  speakerRevised,
+  transcriptLoaded,
+  transcriptCleared,
+} = transcriptSlice.actions
 
 export default transcriptSlice.reducer

@@ -6,7 +6,11 @@ plugins {
 
 android {
     namespace = "com.saksi.saksi_mobile"
-    compileSdk = flutter.compileSdkVersion
+    // Dipatok, bukan mengikuti flutter.compileSdkVersion (36):
+    // permission_handler_android menuntut kompilasi terhadap API 37 atau
+    // lebih baru, dan tanpa ini build Android gagal di checkDebugAarMetadata.
+    // Naikkan lagi kalau ada dependensi yang menuntut lebih tinggi.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

@@ -8,6 +8,9 @@ abstract interface class SessionRepository {
   Future<Session> end(String sessionId);
   Future<List<Obligation>> obligations();
 
+  /// Laporan berbukti untuk satu sesi.
+  Future<ComplianceReport> report(String sessionId);
+
   /// Membuka koneksi realtime ke gateway untuk satu sesi.
   Stream<SessionEvent> connect(String sessionId);
   Future<void> disconnect();

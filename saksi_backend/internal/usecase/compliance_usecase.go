@@ -67,8 +67,13 @@ func (uc *ComplianceUsecase) HandleTranscript(ctx context.Context, sessionID str
 		if ev.IsFinal {
 			eventType = "speaker_calibration_utterance"
 		}
+		// utterance_id ikut dikirim supaya klien bisa MEMPERBARUI contoh yang
+		// sama ketika diarization mengoreksi labelnya, bukan menambah kartu
+		// baru. Tanpa ini, koreksi label saat kalibrasi tidak bisa dipetakan
+		// ke contoh mana pun.
 		uc.broadcaster.Publish(sessionID, map[string]any{
-			"type": eventType, "source_speaker": ev.SourceSpeaker, "text": ev.Text,
+			"type": eventType, "utterance_id": ev.UtteranceID,
+			"source_speaker": ev.SourceSpeaker, "text": ev.Text,
 		})
 		return nil
 	}

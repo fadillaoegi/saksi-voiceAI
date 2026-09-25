@@ -24,6 +24,10 @@ class SessionRepositoryImpl implements SessionRepository {
       SessionModel.fromJson(await _remote.endSession(sessionId));
 
   @override
+  Future<ComplianceReport> report(String sessionId) async =>
+      ComplianceReportModel.fromJson(await _remote.report(sessionId));
+
+  @override
   Future<List<Obligation>> obligations() async {
     final raw = await _remote.obligations();
     return raw

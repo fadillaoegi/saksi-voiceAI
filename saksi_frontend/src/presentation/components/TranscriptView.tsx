@@ -18,7 +18,7 @@ export function TranscriptView({ utterances, partial }: Props) {
         <p key={u.id} className={`line line--${u.speaker}`}>
           <strong>{speakerLabel[u.speaker]}</strong> {u.text}
           {/* Label direvisi diarization — tonjolkan, jangan disembunyikan */}
-          {u.revised && <em className="line__revised"> (label direvisi)</em>}
+          {u.revised && <em className="line__revised">label dikoreksi</em>}
         </p>
       ))}
       {partial && (

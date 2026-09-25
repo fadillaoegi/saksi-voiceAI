@@ -30,6 +30,14 @@ const complianceSlice = createSlice({
     violationDetected(state, action: PayloadAction<Violation>) {
       state.violations.push(action.payload)
     },
+    /**
+     * Mengisi pelanggaran dari snapshot, bukan menambah satu per satu.
+     * Dipakai supervisor yang bergabung di tengah sesi: tanpa ini dia hanya
+     * melihat pelanggaran yang terjadi SETELAH dia menyambung.
+     */
+    violationsLoaded(state, action: PayloadAction<Violation[]>) {
+      state.violations = action.payload
+    },
     nudgeReceived(state, action: PayloadAction<string>) {
       state.lastNudge = action.payload
     },
@@ -43,6 +51,7 @@ export const {
   obligationsLoaded,
   obligationSatisfied,
   violationDetected,
+  violationsLoaded,
   nudgeReceived,
   complianceReset,
 } = complianceSlice.actions

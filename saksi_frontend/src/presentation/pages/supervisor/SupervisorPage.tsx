@@ -2,7 +2,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { container } from '../../../infrastructure/di/container'
 import { useAppDispatch, useAppSelector } from '../../hooks/redux'
 import { loggedOut } from '../../../application/store/slices/authSlice'
-import { obligationsLoaded } from '../../../application/store/slices/complianceSlice'
+import {
+  complianceReset,
+  obligationsLoaded,
+  violationsLoaded,
+} from '../../../application/store/slices/complianceSlice'
+import {
+  transcriptCleared,
+  transcriptLoaded,
+} from '../../../application/store/slices/transcriptSlice'
 import type { Session } from '../../../domain/entities/session'
 import { useSessionStream } from '../../hooks/useSessionStream'
 import {
@@ -28,6 +36,8 @@ export function SupervisorPage() {
   const [listError, setListError] = useState<string | null>(null)
   // Dimulai dari true: daftar memang langsung dimuat begitu supervisor masuk.
   const [loadingList, setLoadingList] = useState(true)
+  const [opening, setOpening] = useState<string | null>(null)
+  const [openError, setOpenError] = useState<string | null>(null)
 
   const authUser = useAppSelector(selectAuthUser)
   const authRestoring = useAppSelector(selectAuthRestoring)
@@ -65,16 +75,34 @@ export function SupervisorPage() {
     if (authUser) void refresh()
   }, [authUser, refresh])
 
-  // Checklist supervisor dulu kosong sampai ada event masuk, jadi supervisor
-  // yang bergabung di tengah sesi tidak melihat progres yang sudah terjadi.
-  // Daftar butir dimuat lebih dulu supaya kerangkanya selalu tampil.
-  useEffect(() => {
-    if (!watching) return
-    container.repositories.session
-      .obligations()
-      .then((o) => dispatch(obligationsLoaded(o)))
-      .catch(() => undefined)
-  }, [watching, dispatch])
+  /**
+   * Memuat snapshot sesi sebelum menyambungkan WebSocket.
+   *
+   * Supervisor dulu memulai dari layar kosong: store hanya terisi oleh event
+   * yang datang SETELAH dia menyambung, sehingga kewajiban yang sudah
+   * terpenuhi dan pelanggaran yang sudah terjadi tidak terlihat sama sekali.
+   *
+   * Urutannya penting. Snapshot diambil DULU, baru soket dibuka. Kalau
+   * dibalik, event yang tiba selama pengambilan snapshot akan tertimpa data
+   * lama yang datang belakangan.
+   */
+  async function open(sessionId: string) {
+    setOpening(sessionId)
+    setOpenError(null)
+    dispatch(complianceReset())
+    dispatch(transcriptCleared())
+    try {
+      const snapshot = await container.usecases.getReport.execute(sessionId)
+      dispatch(obligationsLoaded(snapshot.obligations))
+      dispatch(violationsLoaded(snapshot.violations))
+      dispatch(transcriptLoaded(snapshot.transcript))
+      setWatching(sessionId)
+    } catch (e) {
+      setOpenError((e as Error).message)
+    } finally {
+      setOpening(null)
+    }
+  }
 
   return (
     <main className="page page--supervisor">
@@ -130,16 +158,27 @@ export function SupervisorPage() {
             <ul className="session-list">
               {sessions.map((s) => (
                 <li key={s.id}>
-                  <button onClick={() => setWatching(s.id)}>
-                    {s.productId} · {s.status === 'active' ? 'berjalan' : 'selesai'}
-                    <small>
-                      {new Date(s.startedAt).toLocaleString('id-ID')} · {s.id}
-                    </small>
+                  <button onClick={() => void open(s.id)} disabled={opening !== null}>
+                    {opening === s.id ? (
+                      <span className="btn__busy">
+                        <BisikWave />
+                        Memuat sesi…
+                      </span>
+                    ) : (
+                      <>
+                        {s.productId} · {s.status === 'active' ? 'berjalan' : 'selesai'}
+                        <small>
+                          {new Date(s.startedAt).toLocaleString('id-ID')} · {s.id}
+                        </small>
+                      </>
+                    )}
                   </button>
                 </li>
               ))}
             </ul>
           )}
+
+          {openError && <p className="error-box">{openError}</p>}
 
           <button
             className="btn btn--secondary"
@@ -153,6 +192,21 @@ export function SupervisorPage() {
         </section>
       ) : (
         <div className="grid">
+          <div className="grid__wide">
+            {/* Tanpa ini supervisor terjebak di satu sesi sampai halaman
+                dimuat ulang — menyulitkan saat memantau beberapa petugas. */}
+            <button
+              className="btn--link"
+              onClick={() => {
+                setWatching(null)
+                dispatch(complianceReset())
+                dispatch(transcriptCleared())
+              }}
+            >
+              ← Kembali ke daftar sesi
+            </button>
+          </div>
+
           <section>
             <h2>Kewajiban</h2>
             <ObligationList items={obligations} />

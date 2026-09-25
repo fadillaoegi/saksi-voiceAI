@@ -59,6 +59,20 @@ class SessionRemoteDataSource {
     }
   }
 
+  /// Laporan berbukti. Endpoint yang sama juga melayani sesi yang masih
+  /// berjalan, jadi bisa dipakai sebagai snapshot — bukan hanya hasil akhir.
+  Future<Map<String, dynamic>> report(String sessionId) async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '/api/sessions/$sessionId/report',
+      );
+      return res.data!;
+    } on DioException catch (e) {
+      throw NetworkFailure(
+          _networkMessage('memuat laporan', e, _dio.options.baseUrl));
+    }
+  }
+
   Future<List<dynamic>> obligations() async {
     try {
       final res = await _dio.get<List<dynamic>>('/api/obligations');

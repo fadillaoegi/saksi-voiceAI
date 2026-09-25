@@ -25,14 +25,22 @@ export function useSessionStream(sessionId: string | null, role: SocketRole) {
   const [calibrationStatus, setCalibrationStatus] = useState<'idle' | 'collecting' | 'confirmed'>(
     'idle',
   )
+  // Disimpan per utterance, bukan per label. Diarization bisa MENGOREKSI
+  // label sebuah ucapan belakangan — dan di detik-detik awal sesi itu justru
+  // hal yang lumrah. Kalau kunci penyimpanannya label, koreksi tidak bisa
+  // dipetakan ke contoh mana pun dan suara kedua tidak pernah muncul.
   const [calibrationSamples, setCalibrationSamples] = useState<
-    Array<{ sourceSpeaker: string; text: string }>
+    Array<{ id: string; sourceSpeaker: string; text: string }>
   >([])
   const [calibrationError, setCalibrationError] = useState<string | null>(null)
   const [audioWarning, setAudioWarning] = useState<string | null>(null)
   // Berapa ucapan yang sengaja tidak dihitung sebagai bukti. Angka ini harus
   // terlihat petugas: checklist yang diam bukan berarti sistemnya rusak.
   const [excludedCount, setExcludedCount] = useState(0)
+  // Apa yang benar-benar aktif di mikrofon. Dipakai saat menguji di lapangan:
+  // kalau peredam bawaan ternyata mati, itu penjelasan pertama kenapa
+  // transkrip berantakan — dan tanpa ditampilkan, tidak ada yang tahu.
+  const [micProcessing, setMicProcessing] = useState<string | null>(null)
 
   const handleEvent = useCallback(
     (e: SessionEvent) => {
@@ -58,10 +66,17 @@ export function useSessionStream(sessionId: string | null, role: SocketRole) {
         case 'speaker_calibration_partial':
           break
         case 'speaker_calibration_utterance':
-          if (!e.source_speaker || e.source_speaker === 'UNKNOWN') break
           setCalibrationSamples((current) => {
-            const next = current.filter((sample) => sample.sourceSpeaker !== e.source_speaker)
-            return [...next, { sourceSpeaker: e.source_speaker, text: e.text }]
+            const existing = current.find((sample) => sample.id === e.utterance_id)
+            // Revisi tidak selalu membawa teks; pertahankan teks lama.
+            const merged = {
+              id: e.utterance_id,
+              sourceSpeaker: e.source_speaker,
+              text: e.text || existing?.text || '',
+            }
+            return existing
+              ? current.map((s) => (s.id === e.utterance_id ? merged : s))
+              : [...current, merged]
           })
           break
         case 'speaker_roles_confirmed':
@@ -125,7 +140,16 @@ export function useSessionStream(sessionId: string | null, role: SocketRole) {
             (pcm) => container.socket.sendAudio(pcm),
             (reason) => container.socket.reportAudioQuality(reason),
           )
-          .then(() => dispatch(recordingChanged(true)))
+          .then(() => {
+            dispatch(recordingChanged(true))
+            const p = container.repositories.audio.processing
+            const on = [
+              p.noiseSuppression && 'peredam bising',
+              p.voiceIsolation && 'isolasi suara',
+              p.echoCancellation && 'peredam gema',
+            ].filter(Boolean)
+            setMicProcessing(on.length > 0 ? on.join(' · ') : null)
+          })
           .catch((err: Error) => dispatch(sessionFailed(err.message)))
       },
       onClose: () => dispatch(connectionChanged(false)),
@@ -148,12 +172,21 @@ export function useSessionStream(sessionId: string | null, role: SocketRole) {
     container.socket.confirmSpeakerRoles(officerLabel, customerLabel)
   }, [])
 
+  /** Mulai ulang kalibrasi dari nol — backend ikut membuang mapping lama. */
+  const restartCalibration = useCallback(() => {
+    setCalibrationSamples([])
+    setCalibrationError(null)
+    container.socket.beginSpeakerCalibration()
+  }, [])
+
   return {
     calibrationStatus,
     calibrationSamples,
     calibrationError,
     confirmSpeakerRoles,
+    restartCalibration,
     audioWarning,
     excludedCount,
+    micProcessing,
   }
 }

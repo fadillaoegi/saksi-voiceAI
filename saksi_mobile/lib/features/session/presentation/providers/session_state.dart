@@ -12,6 +12,8 @@ class SessionState {
     this.connected = false,
     this.recording = false,
     this.starting = false,
+    this.report,
+    this.loadingReport = false,
     this.error,
     this.warning,
   });
@@ -28,6 +30,11 @@ class SessionState {
   /// Sesi sedang dibuka: HTTP, WebSocket, dan mikrofon belum selesai.
   /// Tanpa ini tombol "Mulai sesi" terasa mati selama beberapa detik.
   final bool starting;
+
+  /// Laporan berbukti setelah sesi berakhir. Ini payoff produknya:
+  /// skor tidak berarti apa-apa tanpa kutipan yang mendasarinya.
+  final ComplianceReport? report;
+  final bool loadingReport;
 
   final String? error;
 
@@ -54,6 +61,8 @@ class SessionState {
     bool? connected,
     bool? recording,
     bool? starting,
+    ComplianceReport? report,
+    bool? loadingReport,
     String? error,
     String? warning,
     bool clearPartial = false,
@@ -70,6 +79,8 @@ class SessionState {
         connected: connected ?? this.connected,
         recording: recording ?? this.recording,
         starting: starting ?? this.starting,
+        report: report ?? this.report,
+        loadingReport: loadingReport ?? this.loadingReport,
         error: clearError ? null : (error ?? this.error),
         warning: clearWarning ? null : (warning ?? this.warning),
       );

@@ -1,4 +1,5 @@
 import type {
+  AudioProcessing,
   AudioQualityReason,
   AudioRepository,
 } from '../../domain/repositories/audio_repository'
@@ -26,7 +27,13 @@ interface AudioStats {
   rms: number
   peak: number
   clippedRatio: number
+  noiseFloor: number
+  gatedRatio: number
 }
+
+// Dengung AC, deru jalan, dan getaran meja hampir semuanya di bawah ini,
+// sementara suara manusia praktis tidak punya energi berguna di sana.
+const HIGHPASS_HZ = 85
 
 /** Menerjemahkan satu jendela pengukuran menjadi alasan, '' kalau sehat. */
 export function verdictFor(stats: AudioStats): AudioQualityReason {
@@ -34,7 +41,7 @@ export function verdictFor(stats: AudioStats): AudioQualityReason {
   if (stats.clippedRatio > CLIP_RATIO) return 'Suara terlalu keras dan pecah'
   if (stats.rms < QUIET_RMS) return 'Suara terlalu pelan dari mikrofon'
   if (stats.rms > NOISY_RMS && stats.peak / stats.rms < NOISY_CREST) {
-    return 'Kebisingan latar terlalu tinggi'
+    return 'Kebisingan latar terlalu tinggi — matikan musik atau pindah ke tempat lebih tenang'
   }
   return ''
 }
@@ -59,6 +66,18 @@ export class WorkletAudioRepository implements AudioRepository {
   private onQuality: ((reason: AudioQualityReason) => void) | null = null
   private lastReason: AudioQualityReason = ''
 
+  /**
+   * Terisi setelah start(). Dibaca balik dari track, bukan dari permintaan —
+   * constraint getUserMedia boleh diabaikan browser tanpa memberi tahu, jadi
+   * "sudah saya minta" bukan bukti "sudah aktif".
+   */
+  processing: AudioProcessing = {
+    noiseSuppression: false,
+    echoCancellation: false,
+    autoGainControl: false,
+    voiceIsolation: false,
+  }
+
   actualSampleRate = TARGET_SAMPLE_RATE
 
   async start(
@@ -67,14 +86,26 @@ export class WorkletAudioRepository implements AudioRepository {
   ): Promise<void> {
     if (this.ctx) return
 
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    })
+    // `voiceIsolation` belum ada di tipe bawaan TypeScript dan belum
+    // didukung semua browser. Diminta lewat cast, dan kalau ditolak browser
+    // akan mengabaikannya tanpa menggagalkan permintaan.
+    const audio: MediaTrackConstraints = {
+      channelCount: 1,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      ...({ voiceIsolation: true } as MediaTrackConstraints),
+    }
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio })
+
+    const settings = this.stream.getAudioTracks()[0]?.getSettings() ?? {}
+    this.processing = {
+      noiseSuppression: settings.noiseSuppression === true,
+      echoCancellation: settings.echoCancellation === true,
+      autoGainControl: settings.autoGainControl === true,
+      voiceIsolation:
+        (settings as Record<string, unknown>).voiceIsolation === true,
+    }
 
     this.ctx = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE })
     this.actualSampleRate = this.ctx.sampleRate
@@ -82,6 +113,15 @@ export class WorkletAudioRepository implements AudioRepository {
     await this.ctx.audioWorklet.addModule('/pcm-worklet.js')
 
     const source = this.ctx.createMediaStreamSource(this.stream)
+
+    // High-pass sebelum worklet: membuang dengung dan getaran frekuensi
+    // rendah yang tidak membawa informasi ucapan sama sekali, tetapi
+    // menaikkan RMS dan membuat noise gate salah menilai ruangan ramai.
+    const highpass = this.ctx.createBiquadFilter()
+    highpass.type = 'highpass'
+    highpass.frequency.value = HIGHPASS_HZ
+    highpass.Q.value = 0.707
+
     this.node = new AudioWorkletNode(this.ctx, 'pcm-processor')
     this.onFrame = onFrame
     this.onQuality = onQuality ?? null
@@ -96,7 +136,8 @@ export class WorkletAudioRepository implements AudioRepository {
       this.reportQuality(verdictFor(e.data))
     }
 
-    source.connect(this.node)
+    source.connect(highpass)
+    highpass.connect(this.node)
     // Jangan sambungkan ke destination: kita tidak mau suara petugas
     // terdengar balik lewat speaker.
   }

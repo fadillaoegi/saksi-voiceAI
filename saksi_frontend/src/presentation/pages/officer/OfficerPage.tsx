@@ -18,6 +18,7 @@ import {
   violationDetected,
 } from '../../../application/store/slices/complianceSlice'
 import {
+  speakerRevised,
   transcriptCleared,
   utteranceAppended,
 } from '../../../application/store/slices/transcriptSlice'
@@ -26,6 +27,7 @@ import {
   createDemoReport,
   createDemoSession,
   demoObligations,
+  demoMislabeledUtterance,
   demoUtterances,
   demoViolation,
 } from '../../../application/demo/demo_scenario'
@@ -96,11 +98,21 @@ export function OfficerPage() {
     'officer',
   )
   const [officerSpeakerLabel, setOfficerSpeakerLabel] = useState<string | null>(null)
+  // Hanya label yang benar-benar dikenali yang boleh dipilih. Contoh yang
+  // belum bisa dilabeli kini ikut disimpan (supaya petugas tahu sistemnya
+  // mendengar), jadi daftar mentahnya tidak lagi aman dipakai langsung.
+  const recognisedLabels = [
+    ...new Set(
+      stream.calibrationSamples
+        .map((sample) => sample.sourceSpeaker)
+        .filter((label) => label && label !== 'UNKNOWN'),
+    ),
+  ].sort()
+
   const effectiveOfficerSpeakerLabel =
-    officerSpeakerLabel &&
-    stream.calibrationSamples.some((sample) => sample.sourceSpeaker === officerSpeakerLabel)
+    officerSpeakerLabel && recognisedLabels.includes(officerSpeakerLabel)
       ? officerSpeakerLabel
-      : (stream.calibrationSamples[0]?.sourceSpeaker ?? null)
+      : (recognisedLabels[0] ?? null)
 
   function clearDemoTimers() {
     demoTimers.current.forEach((timer) => window.clearTimeout(timer))
@@ -169,12 +181,21 @@ export function OfficerPage() {
       dispatch(nudgeReceived(reminder))
       container.repositories.speech.speak(reminder)
     })
-    scheduleDemo(7_600, () => {
-      dispatch(utteranceAppended(demoUtterances[4]))
+    // Petugas menyampaikan dua kewajiban terakhir, TETAPI diarization salah
+    // melabelinya sebagai nasabah. Checklist sengaja tetap diam di sini —
+    // hanya ucapan petugas yang boleh memenuhi kewajiban.
+    scheduleDemo(7_600, () => dispatch(utteranceAppended(demoMislabeledUtterance)))
+
+    // AssemblyAI mengoreksi labelnya. Ucapan itu belum pernah dinilai, jadi
+    // dinilai sekarang — dan dua kewajiban terakhir baru berubah hijau.
+    // Inilah bagian terdalam dari pipeline ini, dan tanpa babak ini penonton
+    // tidak akan pernah tahu bahwa sistemnya menanganinya.
+    scheduleDemo(8_900, () => {
+      dispatch(speakerRevised({ id: 'demo-5', speaker: 'officer' }))
       dispatch(obligationSatisfied({ code: 'PENALTY', confidence: 0.94, evidenceId: 'demo-5' }))
       dispatch(obligationSatisfied({ code: 'RIGHT', confidence: 0.98, evidenceId: 'demo-5' }))
     })
-    scheduleDemo(9_000, () => {
+    scheduleDemo(10_400, () => {
       const ended = createDemoSession('ended')
       dispatch(sessionEnded(ended))
       dispatch(connectionChanged(false))
@@ -217,11 +238,11 @@ export function OfficerPage() {
 
   function handleConfirmSpeakerRoles() {
     if (!effectiveOfficerSpeakerLabel) return
-    const customer = stream.calibrationSamples.find(
-      (sample) => sample.sourceSpeaker !== effectiveOfficerSpeakerLabel,
+    const customer = recognisedLabels.find(
+      (label) => label !== effectiveOfficerSpeakerLabel,
     )
     if (!customer) return
-    stream.confirmSpeakerRoles(effectiveOfficerSpeakerLabel, customer.sourceSpeaker)
+    stream.confirmSpeakerRoles(effectiveOfficerSpeakerLabel, customer)
   }
 
   return (
@@ -294,7 +315,7 @@ export function OfficerPage() {
           <div className="demo-entry">
             <span>atau</span>
             <button className="btn btn--secondary" onClick={handleDemo}>
-              Putar demo terarah · 9 detik
+              Putar demo terarah · 11 detik
             </button>
             <small>Simulasi lokal tanpa mikrofon atau API eksternal.</small>
           </div>
@@ -322,6 +343,9 @@ export function OfficerPage() {
             <span className={`dot ${connected ? 'dot--on' : 'dot--off'}`} />
             {demoMode ? 'Demo aktif' : connected ? 'Terhubung' : 'Menyambung…'} ·{' '}
             {demoMode ? 'tanpa mikrofon' : recording ? 'merekam' : 'mic mati'}
+            {!demoMode && stream.micProcessing && (
+              <> · {stream.micProcessing}</>
+            )}
           </p>
 
           {/* Kegagalan jalur audio harus terlihat: status "merekam" saja
@@ -359,6 +383,10 @@ export function OfficerPage() {
               error={stream.calibrationError}
               onSelectOfficer={setOfficerSpeakerLabel}
               onConfirm={handleConfirmSpeakerRoles}
+              onRestart={() => {
+                setOfficerSpeakerLabel(null)
+                stream.restartCalibration()
+              }}
             />
           ) : (
             <>

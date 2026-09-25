@@ -22,11 +22,22 @@ func TestConnectionParamsUntukBahasaIndonesia(t *testing.T) {
 	if got := q.Get("speech_model"); got != "whisper-rt" {
 		t.Fatalf("speech_model = %q, mau whisper-rt", got)
 	}
-	if got := q.Get("speaker_labels_revision_interval_ms"); got != "120000" {
-		t.Fatalf("revision interval = %q, mau 120000", got)
+	// Nilai dikirim apa adanya, tidak dipaksa naik. Clamp diam-diam membuat
+	// interval pendek mustahil diuji, padahal itu tersangka utama kenapa
+	// suara kedua tidak muncul saat kalibrasi.
+	if got := q.Get("speaker_labels_revision_interval_ms"); got != "5000" {
+		t.Fatalf("revision interval = %q, mau 5000 (apa adanya)", got)
 	}
 	if got := q.Get("format_turns"); got != "" {
 		t.Fatalf("format_turns tidak boleh dikirim untuk whisper-rt, dapat %q", got)
+	}
+}
+
+func TestIntervalRevisiTidakMasukAkalDikembalikanKeMinimum(t *testing.T) {
+	// Nol atau negatif bukan eksperimen, itu salah konfigurasi.
+	stt := NewStreamingSTT("key", "ws://example.test", "", 0, testLogger())
+	if got := stt.connectionParams().Get("speaker_labels_revision_interval_ms"); got != "120000" {
+		t.Fatalf("interval = %q, mau kembali ke 120000", got)
 	}
 }
 
@@ -234,5 +245,65 @@ func TestMaxSpeakersMenyediakanSlotOrangKetiga(t *testing.T) {
 	stt := NewStreamingSTT("key", "ws://example.test", "whisper-rt", 120000, testLogger())
 	if got := stt.connectionParams().Get("max_speakers"); got != "3" {
 		t.Fatalf("max_speakers = %q, mau 3 — batas 2 memaksa orang ketiga jadi role terkalibrasi", got)
+	}
+}
+
+func TestLabelFromWordsMemilihPembicaraTerbanyak(t *testing.T) {
+	label := labelFromWords([]wsWord{
+		{Text: "saya", Speaker: "B"},
+		{Text: "nasabah", Speaker: "B"},
+		{Text: "eh", Speaker: "A"},
+	})
+	if label != "B" {
+		t.Fatalf("label = %q, mau B", label)
+	}
+
+	// Label kosong dan UNKNOWN tidak boleh ikut dihitung.
+	if got := labelFromWords([]wsWord{{Speaker: ""}, {Speaker: "UNKNOWN"}}); got != "" {
+		t.Fatalf("label = %q, mau kosong", got)
+	}
+}
+
+func TestTextFromWordsMenyusunUlangKalimatRevisi(t *testing.T) {
+	// Pesan SpeakerRevision tidak membawa `transcript`, hanya words[].
+	got := textFromWords([]wsWord{{Text: "saya"}, {Text: "nasabah"}, {Text: ""}})
+	if got != "saya nasabah" {
+		t.Fatalf("teks = %q, mau \"saya nasabah\"", got)
+	}
+}
+
+// Regresi uji lapangan 25 Sep: hanya suara pertama yang terdeteksi saat
+// kalibrasi. Penyebabnya revisi untuk turn kalibrasi dibuang, padahal justru
+// revisi itulah cara diarization memberi tahu ada suara kedua.
+func TestTurnKalibrasiDitandaiDanTetapBisaDirevisi(t *testing.T) {
+	stt := NewStreamingSTT("key", "ws://example.test", "whisper-rt", 120000, testLogger())
+	stt.speakers["sesi-1"] = &speakerSession{
+		roles: map[string]domain.Speaker{}, calibrationTurns: map[int]struct{}{},
+	}
+	if err := stt.BeginSpeakerCalibration("sesi-1"); err != nil {
+		t.Fatalf("BeginSpeakerCalibration(): %v", err)
+	}
+
+	// Dua orang bicara, tetapi diarization masih melabeli keduanya "A".
+	for _, turn := range []int{1, 2} {
+		role, calibrating := stt.resolveSpeaker("sesi-1", "A", turn)
+		if role != domain.SpeakerUnknown || !calibrating {
+			t.Fatalf("turn %d = %q calibrating=%v, mau unknown/true", turn, role, calibrating)
+		}
+	}
+
+	// Keduanya harus tercatat sebagai turn kalibrasi supaya tidak dinilai...
+	for _, turn := range []int{1, 2} {
+		if !stt.isCalibrationTurn("sesi-1", turn) {
+			t.Fatalf("turn %d tidak ditandai sebagai turn kalibrasi", turn)
+		}
+	}
+
+	// ...tetapi ditandai bukan berarti revisinya boleh dibuang. Saat
+	// diarization mengoreksi turn 2 menjadi "B", itu satu-satunya sinyal
+	// bahwa ada dua suara.
+	role, _ := stt.resolveSpeaker("sesi-1", "B", 2)
+	if role != domain.SpeakerUnknown {
+		t.Fatalf("selama kalibrasi semua role harus unknown, dapat %q", role)
 	}
 }

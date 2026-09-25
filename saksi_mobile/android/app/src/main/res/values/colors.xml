@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Sama dengan --bg di saksi_frontend/src/index.css dan
+    <!-- Sama dengan token bg di saksi_frontend/src/index.css dan
          BisikColors.bg di lib/core/theme/bisik_theme.dart.
          Dipakai splash dan jendela aplikasi supaya tidak ada kedipan putih
          antara ikon launcher dan frame pertama Flutter. -->

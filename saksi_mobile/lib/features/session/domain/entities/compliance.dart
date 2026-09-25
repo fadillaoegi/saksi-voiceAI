@@ -1,3 +1,5 @@
+import 'session.dart';
+
 enum ObligationStatus { pending, satisfied, violated }
 
 class Obligation {
@@ -41,4 +43,32 @@ class Violation {
   final String severity;
   final String evidenceId;
   final DateTime detectedAt;
+}
+
+/// Laporan kepatuhan berbukti: tiap butir menunjuk ucapan mana yang
+/// memenuhinya, sehingga skornya bisa ditelusuri balik ke percakapan.
+class ComplianceReport {
+  const ComplianceReport({
+    required this.session,
+    required this.obligations,
+    required this.violations,
+    required this.transcript,
+  });
+
+  final Session session;
+  final List<Obligation> obligations;
+  final List<Violation> violations;
+  final List<Utterance> transcript;
+
+  int get satisfiedCount =>
+      obligations.where((o) => o.status == ObligationStatus.satisfied).length;
+
+  /// Ucapan yang menjadi bukti sebuah butir, kalau masih ada di transkrip.
+  Utterance? evidenceFor(Obligation obligation) {
+    if (obligation.evidenceId == null) return null;
+    for (final u in transcript) {
+      if (u.id == obligation.evidenceId) return u;
+    }
+    return null;
+  }
 }

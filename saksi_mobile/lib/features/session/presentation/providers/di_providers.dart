@@ -9,6 +9,7 @@ import '../../data/datasources/tts_datasource.dart';
 import '../../data/repositories/session_repository_impl.dart';
 import '../../domain/repositories/session_repository.dart';
 import '../../domain/usecases/end_session.dart';
+import '../../domain/usecases/get_report.dart';
 import '../../domain/usecases/start_session.dart';
 import '../../domain/usecases/stream_session.dart';
 
@@ -53,6 +54,10 @@ final startSessionProvider = Provider(
 
 final endSessionProvider = Provider(
   (ref) => EndSessionUseCase(ref.watch(sessionRepositoryProvider)),
+);
+
+final getReportProvider = Provider(
+  (ref) => GetReportUseCase(ref.watch(sessionRepositoryProvider)),
 );
 
 final streamSessionProvider = Provider(

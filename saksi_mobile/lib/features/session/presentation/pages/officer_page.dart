@@ -8,6 +8,7 @@ import '../providers/session_controller.dart';
 import '../providers/session_state.dart';
 import '../widgets/obligation_focus.dart';
 import '../widgets/obligation_tile.dart';
+import '../widgets/report_view.dart';
 import '../widgets/transcript_list.dart';
 
 class OfficerPage extends ConsumerStatefulWidget {
@@ -31,6 +32,10 @@ class _OfficerPageState extends ConsumerState<OfficerPage> {
     final state = ref.watch(sessionControllerProvider);
     final controller = ref.read(sessionControllerProvider.notifier);
     final running = state.session?.isRunning ?? false;
+    // Selama sesi berjalan skornya perkiraan; begitu laporan tiba, angka
+    // resmi dari backend yang dipakai — itu yang dihitung setelah revisi
+    // label terakhir diproses.
+    final score = state.report?.session.score ?? state.liveScore;
 
     return Scaffold(
       appBar: AppBar(
@@ -49,11 +54,11 @@ class _OfficerPageState extends ConsumerState<OfficerPage> {
             padding: const EdgeInsets.only(right: 16),
             child: Center(
               child: Text(
-                '${state.liveScore}/100',
+                '$score/100',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: switch (state.liveScore) {
+                  color: switch (score) {
                     >= 80 => BisikColors.good,
                     >= 50 => BisikColors.warn,
                     _ => BisikColors.bad,
@@ -66,12 +71,37 @@ class _OfficerPageState extends ConsumerState<OfficerPage> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
+        // Tiga layar berurutan: belum mulai → sesi berjalan → laporan.
+        // Sebelumnya laporan tidak ada sama sekali, jadi setelah sesi
+        // berakhir aplikasi langsung kembali ke layar awal dan payoff
+        // produknya — bukti kepatuhan — hilang di mobile.
         child: running
             ? _buildActive(state, controller)
-            : _buildIdle(state, controller),
+            : state.loadingReport
+                ? _buildLoadingReport()
+                : state.report != null
+                    ? ReportView(
+                        report: state.report!,
+                        onReset: controller.reset,
+                      )
+                    : _buildIdle(state, controller),
       ),
     );
   }
+
+  Widget _buildLoadingReport() => const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            BisikWave(height: 26),
+            SizedBox(height: 16),
+            Text(
+              'Menyiapkan laporan berbukti…',
+              style: TextStyle(color: BisikColors.muted, fontSize: 15),
+            ),
+          ],
+        ),
+      );
 
   Widget _buildIdle(SessionState state, SessionController controller) {
     return Column(

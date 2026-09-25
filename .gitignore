@@ -8,3 +8,11 @@ bin/
 *.log
 .dart_tool/
 build/
+
+# Ignore markdown files and rradmin
+*.md
+!README.md
+!**/README.md
+!readme.md
+!**/readme.md
+rradmin

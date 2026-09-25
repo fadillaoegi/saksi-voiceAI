@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -77,8 +78,20 @@ func NewStreamingSTT(apiKey, wsURL, model string, revisionIntervalMS int, log *s
 	if model == "" {
 		model = DefaultSpeechModel
 	}
-	if revisionIntervalMS < MinimumRevisionIntervalMS {
+	// Nilai TIDAK lagi dipaksa naik ke minimum dokumentasi.
+	//
+	// Clamp diam-diam sebelumnya membuat nilai lebih kecil mustahil diuji,
+	// padahal interval revisi 120 detik adalah tersangka utama kenapa suara
+	// kedua tidak pernah muncul saat kalibrasi: sesi kalibrasi hanya belasan
+	// detik, jauh sebelum revisi pertama dijadwalkan. Biarkan server yang
+	// memutuskan dan menaikkan kalau memang perlu — konfigurasi efektifnya
+	// tercetak dari pesan `Begin`.
+	if revisionIntervalMS < 1000 {
 		revisionIntervalMS = MinimumRevisionIntervalMS
+	}
+	if revisionIntervalMS < MinimumRevisionIntervalMS {
+		log.Warn("interval revisi di bawah minimum dokumentasi; server boleh menaikkannya",
+			"diminta_ms", revisionIntervalMS, "minimum_dokumentasi_ms", MinimumRevisionIntervalMS)
 	}
 	return &StreamingSTT{
 		apiKey:             apiKey,
@@ -187,8 +200,10 @@ func (s *StreamingSTT) connectionParams() url.Values {
 	// label sendiri, lalu kita tolak sebagai pembicara tidak dikenal.
 	q.Set("speaker_labels", "true")
 	q.Set("max_speakers", strconv.Itoa(MaxSpeakers))
-	// Dokumentasi terbaru menetapkan minimum 120 detik; nilai lebih kecil
-	// otomatis dinaikkan server. Revisi final tetap datang saat Terminate.
+	// Dokumentasi menetapkan minimum 120 detik. Nilainya tetap dikirim apa
+	// adanya supaya bisa diuji; kalau server menaikkannya, itu akan terlihat
+	// pada konfigurasi efektif di pesan `Begin`. Revisi final tetap datang
+	// saat Terminate.
 	q.Set("speaker_labels_revision_interval_ms", strconv.Itoa(s.revisionIntervalMS))
 	return q
 }
@@ -196,6 +211,8 @@ func (s *StreamingSTT) connectionParams() url.Values {
 func (s *StreamingSTT) readLoop(ctx context.Context, sessionID string, stream *streamConnection, out chan<- usecase.TranscriptEvent) {
 	defer close(out)
 	defer s.cleanup(sessionID, stream)
+
+	turnsSeen, turnsWithoutLabel := 0, 0
 
 	for {
 		select {
@@ -224,18 +241,49 @@ func (s *StreamingSTT) readLoop(ctx context.Context, sessionID string, stream *s
 
 		switch m.Type {
 		case "Begin":
-			s.log.Info("stt terhubung", "session", sessionID, "upstream_id", m.ID)
+			// Konfigurasi efektif dicetak apa adanya. Server boleh MENERIMA
+			// parameter `speaker_labels` lalu diam-diam tidak mengaktifkannya
+			// untuk model tertentu — dan tanpa cetakan ini, satu-satunya
+			// gejala adalah label pembicara yang kosong terus.
+			s.log.Info("stt terhubung", "session", sessionID, "upstream_id", m.ID,
+				"konfigurasi_efektif", string(raw))
 
 		case "Turn":
 			if m.Transcript == "" {
 				continue
 			}
+			// Tiga turn pertama dicetak mentah. Ini cara tercepat memastikan
+			// nama field dan apakah `speaker_label`/`words[].speaker` benar
+			// benar dikirim server, alih-alih menebak dari gejala.
+			if turnsSeen < 3 {
+				turnsSeen++
+				s.log.Info("turn mentah", "session", sessionID, "ke", turnsSeen,
+					"payload", string(raw))
+			}
+			if m.SpeakerLabel == "" || m.SpeakerLabel == "UNKNOWN" {
+				turnsWithoutLabel++
+				if labelFromWords(m.Words) == "" {
+					s.log.Warn("turn tanpa label pembicara",
+						"session", sessionID,
+						"turn", m.TurnOrder,
+						"tanpa_label", turnsWithoutLabel,
+						"speaker_label", m.SpeakerLabel,
+						"jumlah_kata", len(m.Words),
+						"kesimpulan", "diarization tidak menghasilkan label untuk model ini")
+				}
+			}
 			start, end := spanOf(m.Words)
-			role, calibrating := s.resolveSpeaker(sessionID, m.SpeakerLabel, m.TurnOrder)
+			label := m.SpeakerLabel
+			if label == "" || label == "UNKNOWN" {
+				if fallback := labelFromWords(m.Words); fallback != "" {
+					label = fallback
+				}
+			}
+			role, calibrating := s.resolveSpeaker(sessionID, label, m.TurnOrder)
 			if !emitTranscriptEvent(ctx, out, usecase.TranscriptEvent{
 				UtteranceID:   utteranceID(sessionID, m.TurnOrder),
 				Speaker:       role,
-				SourceSpeaker: m.SpeakerLabel,
+				SourceSpeaker: label,
 				Text:          m.Transcript,
 				StartMS:       start,
 				EndMS:         end,
@@ -249,14 +297,41 @@ func (s *StreamingSTT) readLoop(ctx context.Context, sessionID string, stream *s
 		// sebelumnya. Hanya turn yang berubah yang dikirim.
 		case "SpeakerRevision":
 			for _, rev := range m.Revisions {
+				label := rev.SpeakerLabel
+				if label == "" || label == "UNKNOWN" {
+					if fallback := labelFromWords(rev.Words); fallback != "" {
+						label = fallback
+					}
+				}
+
+				// Revisi untuk turn kalibrasi dulu DIBUANG di sini, dan itu
+				// membuat suara kedua tidak pernah muncul.
+				//
+				// Streaming diarization membangun profil suara seiring
+				// bertambahnya audio. Di detik-detik awal sesi ia sering
+				// melabeli dua orang dengan label yang sama, lalu
+				// mengoreksinya lewat SpeakerRevision. Kalibrasi terjadi
+				// persis di detik-detik awal itu — jadi revisi inilah
+				// satu-satunya cara sistem tahu ada dua suara.
 				if s.isCalibrationTurn(sessionID, rev.TurnOrder) {
+					if !emitTranscriptEvent(ctx, out, usecase.TranscriptEvent{
+						UtteranceID:   utteranceID(sessionID, rev.TurnOrder),
+						Speaker:       domain.SpeakerUnknown,
+						SourceSpeaker: label,
+						Text:          textFromWords(rev.Words),
+						IsFinal:       true,
+						IsCalibration: true,
+					}) {
+						return
+					}
 					continue
 				}
-				role, _ := s.resolveSpeaker(sessionID, rev.SpeakerLabel, rev.TurnOrder)
+
+				role, _ := s.resolveSpeaker(sessionID, label, rev.TurnOrder)
 				if !emitTranscriptEvent(ctx, out, usecase.TranscriptEvent{
 					UtteranceID:   utteranceID(sessionID, rev.TurnOrder),
 					Speaker:       role,
-					SourceSpeaker: rev.SpeakerLabel,
+					SourceSpeaker: label,
 					IsFinal:       true,
 					IsRevision:    true,
 				}) {
@@ -296,6 +371,41 @@ func emitTranscriptEvent(ctx context.Context, out chan<- usecase.TranscriptEvent
 // ke baris transkrip yang sama.
 func utteranceID(sessionID string, turnOrder int) string {
 	return fmt.Sprintf("%s-t%d", sessionID, turnOrder)
+}
+
+// labelFromWords menurunkan label pembicara dari words[] ketika label
+// tingkat turn kosong.
+//
+// AssemblyAI tidak selalu mengisi `speaker_label` di level turn, tetapi
+// hampir selalu mengisi `speaker` per kata. Tanpa cadangan ini, turn yang
+// labelnya kosong akan hilang begitu saja dari kalibrasi — dan petugas
+// melihat layar yang diam tanpa penjelasan.
+func labelFromWords(words []wsWord) string {
+	counts := map[string]int{}
+	for _, w := range words {
+		if w.Speaker != "" && w.Speaker != "UNKNOWN" {
+			counts[w.Speaker]++
+		}
+	}
+	best, bestCount := "", 0
+	for label, n := range counts {
+		if n > bestCount {
+			best, bestCount = label, n
+		}
+	}
+	return best
+}
+
+// textFromWords menyusun ulang kalimat dari words[]. Pesan SpeakerRevision
+// tidak membawa `transcript`, hanya daftar kata.
+func textFromWords(words []wsWord) string {
+	parts := make([]string, 0, len(words))
+	for _, w := range words {
+		if w.Text != "" {
+			parts = append(parts, w.Text)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func spanOf(words []wsWord) (int, int) {

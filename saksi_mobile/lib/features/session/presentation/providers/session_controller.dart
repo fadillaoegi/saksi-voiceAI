@@ -47,10 +47,31 @@ class SessionController extends Notifier<SessionState> {
     try {
       final session = await ref.read(endSessionProvider)(id);
       await _teardown();
-      state = state.copyWith(session: session, recording: false, connected: false);
+      state = state.copyWith(
+        session: session,
+        recording: false,
+        connected: false,
+        loadingReport: true,
+      );
+
+      // Laporan diambil setelah sesi ditutup, bukan sebelum: backend baru
+      // menghitung skor akhir setelah revisi label terakhir dari diarization
+      // selesai diproses.
+      final report = await ref.read(getReportProvider)(id);
+      state = state.copyWith(report: report, loadingReport: false);
     } catch (e) {
-      state = state.copyWith(error: '$e');
+      state = state.copyWith(error: '$e', loadingReport: false);
     }
+  }
+
+  /// Membuang laporan dan kembali ke layar awal untuk sesi berikutnya.
+  ///
+  /// Daftar kewajiban dimuat ulang, bukan dipertahankan: statusnya masih
+  /// membawa hasil sesi sebelumnya, dan kalau dibiarkan, sesi baru akan
+  /// terbuka dengan checklist yang sudah hijau.
+  void reset() {
+    state = const SessionState();
+    unawaited(loadObligations());
   }
 
   Future<void> _listen(String sessionId) async {

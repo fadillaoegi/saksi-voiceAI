@@ -51,6 +51,23 @@ export const demoUtterances: Utterance[] = [
   },
 ]
 
+/**
+ * Babak revisi diarization.
+ *
+ * Kalimat terakhir petugas mula-mula salah dilabeli sebagai nasabah — ini
+ * kejadian nyata pada streaming diarization, bukan dramatisasi. Selama label
+ * itu masih `customer`, kedua kewajibannya TIDAK boleh terpenuhi: hanya
+ * ucapan petugas yang bisa memenuhi checklist.
+ *
+ * Ketika AssemblyAI mengirim `SpeakerRevision` dan labelnya berubah menjadi
+ * petugas, ucapan itu belum pernah dinilai — jadi harus dinilai sekarang.
+ * Tanpa penilaian ulang, koreksi diarization justru membuat laporan salah.
+ */
+export const demoMislabeledUtterance: Utterance = {
+  ...demoUtterances[4],
+  speaker: 'customer',
+}
+
 export const demoViolation: Violation = {
   phrase: 'pasti disetujui',
   severity: 'high',
@@ -82,6 +99,10 @@ export function createDemoReport(session: Session): ComplianceReport {
     session: { ...session, status: 'ended', score: 90 },
     obligations: completedObligations,
     violations: [demoViolation],
-    transcript: demoUtterances,
+    // Baris terakhir membawa tanda `revised`: laporan menampilkan label
+    // yang sudah dikoreksi, bukan tebakan pertama diarization.
+    transcript: demoUtterances.map((u) =>
+      u.id === 'demo-5' ? { ...u, revised: true } : u,
+    ),
   }
 }
