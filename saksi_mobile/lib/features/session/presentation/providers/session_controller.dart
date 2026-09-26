@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/audio/audio_quality.dart';
 import '../../domain/entities/compliance.dart';
 import '../../domain/entities/session_event.dart';
 import 'di_providers.dart';
@@ -10,6 +11,7 @@ import 'session_state.dart';
 class SessionController extends Notifier<SessionState> {
   StreamSubscription<SessionEvent>? _events;
   StreamSubscription<List<int>>? _mic;
+  final _quality = AudioQualityMonitor();
 
   @override
   SessionState build() {
@@ -64,6 +66,26 @@ class SessionController extends Notifier<SessionState> {
     }
   }
 
+  /// Mengunci peran dan memulai penilaian.
+  void confirmSpeakerRoles() {
+    final officer = state.officerVoice;
+    final customer = state.customerVoice;
+    if (officer == null || customer == null) return;
+    ref.read(sessionRepositoryProvider).confirmSpeakerRoles(officer, customer);
+  }
+
+  /// Mulai ulang kalibrasi dari nol — gateway ikut membuang mapping lama.
+  void restartCalibration() {
+    state = state.copyWith(
+      calibration: CalibrationStatus.collecting,
+      calibrationSamples: const [],
+      duplicateVoice: false,
+      clearOfficerVoice: true,
+      clearCalibrationError: true,
+    );
+    ref.read(sessionRepositoryProvider).beginSpeakerCalibration();
+  }
+
   /// Membuang laporan dan kembali ke layar awal untuk sesi berikutnya.
   ///
   /// Daftar kewajiban dimuat ulang, bukan dipertahankan: statusnya masih
@@ -84,9 +106,19 @@ class SessionController extends Notifier<SessionState> {
         );
     state = state.copyWith(connected: true);
 
+    // Dikirim SEBELUM mikrofon menyala, supaya frame pertama pun sudah
+    // diperlakukan sebagai kalibrasi — bukan otomatis dianggap petugas.
+    ref.read(sessionRepositoryProvider).beginSpeakerCalibration();
+
     try {
       final mic = await usecase.microphone();
-      _mic = mic.listen(repo.pushAudio);
+      _mic = mic.listen((pcm) {
+        // Kualitas diukur dari frame yang SAMA dengan yang dikirim, dan
+        // hanya dilaporkan saat vonisnya berubah.
+        final reason = _quality.add(pcm);
+        if (reason != null) repo.reportAudioQuality(reason);
+        repo.pushAudio(pcm);
+      });
       state = state.copyWith(recording: true);
     } catch (e) {
       state = state.copyWith(error: '$e', recording: false);
@@ -95,6 +127,53 @@ class SessionController extends Notifier<SessionState> {
 
   void _onEvent(SessionEvent event) {
     switch (event) {
+      case CalibrationStarted():
+        state = state.copyWith(
+          calibration: CalibrationStatus.collecting,
+          calibrationSamples: const [],
+          clearCalibrationError: true,
+        );
+
+      // Langkah 1 selesai saat suara PERTAMA dikenali; sesudah itu, suara
+      // yang sama berarti orang kedua belum bicara.
+      case CalibrationUtterance(
+          :final utteranceId,
+          :final sourceSpeaker,
+          :final text
+        ):
+        final samples = [...state.calibrationSamples];
+        final index = samples.indexWhere((s) => s.id == utteranceId);
+        final merged = CalibrationSample(
+          id: utteranceId,
+          sourceSpeaker: sourceSpeaker,
+          // Revisi tidak selalu membawa teks; pertahankan yang lama.
+          text: text.isNotEmpty
+              ? text
+              : (index >= 0 ? samples[index].text : ''),
+        );
+        if (index >= 0) {
+          samples[index] = merged;
+        } else {
+          samples.add(merged);
+        }
+
+        final officer = state.officerVoice;
+        state = state.copyWith(
+          calibrationSamples: samples,
+          officerVoice: officer ?? (sourceSpeaker.isNotEmpty ? sourceSpeaker : null),
+          duplicateVoice:
+              officer != null && sourceSpeaker == officer,
+        );
+
+      case SpeakerRolesConfirmed():
+        state = state.copyWith(
+          calibration: CalibrationStatus.confirmed,
+          clearCalibrationError: true,
+        );
+
+      case CalibrationError(:final message):
+        state = state.copyWith(calibrationError: message);
+
       case PartialReceived(:final text):
         state = state.copyWith(partial: text);
 

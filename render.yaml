@@ -19,6 +19,10 @@ services:
         value: wss://streaming.assemblyai.com/v3/ws
       - key: ASSEMBLYAI_SPEECH_MODEL
         value: whisper-rt
+      # Model kedua khusus diarization; dijalankan bersamaan atas audio yang
+      # sama. Kosongkan untuk kembali ke satu stream.
+      - key: ASSEMBLYAI_DIARIZER_MODEL
+        value: universal-streaming-multilingual
       - key: ASSEMBLYAI_SPEAKER_REVISION_INTERVAL_MS
         value: "120000"
       - key: LLM_MODEL

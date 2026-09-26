@@ -33,6 +33,13 @@ export function useSessionStream(sessionId: string | null, role: SocketRole) {
     Array<{ id: string; sourceSpeaker: string; text: string }>
   >([])
   const [calibrationError, setCalibrationError] = useState<string | null>(null)
+  // Label suara yang sudah didaftarkan sebagai petugas. Diisi oleh suara
+  // PERTAMA yang dikenali, karena kalibrasi kini dipandu langkah demi
+  // langkah: aplikasi menyuruh petugas bicara dulu, baru nasabah.
+  const [officerVoice, setOfficerVoice] = useState<string | null>(null)
+  // Menyala ketika suara yang sama bicara lagi di langkah kedua. Tanpa
+  // penanda ini petugas menunggu tanpa tahu kenapa layarnya diam.
+  const [duplicateVoice, setDuplicateVoice] = useState(false)
   const [audioWarning, setAudioWarning] = useState<string | null>(null)
   // Berapa ucapan yang sengaja tidak dihitung sebagai bukti. Angka ini harus
   // terlihat petugas: checklist yang diam bukan berarti sistemnya rusak.
@@ -52,6 +59,7 @@ export function useSessionStream(sessionId: string | null, role: SocketRole) {
           dispatch(
             utteranceAppended({
               id: e.id, speaker: e.speaker, text: e.text, startMs: 0, revised: false,
+              sourceSpeaker: e.source_speaker,
             }),
           )
           break
@@ -62,10 +70,24 @@ export function useSessionStream(sessionId: string | null, role: SocketRole) {
           setCalibrationStatus('collecting')
           setCalibrationSamples([])
           setCalibrationError(null)
+          setOfficerVoice(null)
+          setDuplicateVoice(false)
           break
         case 'speaker_calibration_partial':
           break
         case 'speaker_calibration_utterance':
+          // Langkah 1 selesai saat suara pertama dikenali; sesudah itu, suara
+          // yang sama berarti orang kedua belum bicara.
+          if (e.source_speaker) {
+            setOfficerVoice((registered) => {
+              if (registered === null) {
+                setDuplicateVoice(false)
+                return e.source_speaker
+              }
+              setDuplicateVoice(e.source_speaker === registered)
+              return registered
+            })
+          }
           setCalibrationSamples((current) => {
             const existing = current.find((sample) => sample.id === e.utterance_id)
             // Revisi tidak selalu membawa teks; pertahankan teks lama.
@@ -176,6 +198,8 @@ export function useSessionStream(sessionId: string | null, role: SocketRole) {
   const restartCalibration = useCallback(() => {
     setCalibrationSamples([])
     setCalibrationError(null)
+    setOfficerVoice(null)
+    setDuplicateVoice(false)
     container.socket.beginSpeakerCalibration()
   }, [])
 
@@ -185,6 +209,8 @@ export function useSessionStream(sessionId: string | null, role: SocketRole) {
     calibrationError,
     confirmSpeakerRoles,
     restartCalibration,
+    officerVoice,
+    duplicateVoice,
     audioWarning,
     excludedCount,
     micProcessing,

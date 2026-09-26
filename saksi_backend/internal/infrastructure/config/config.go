@@ -6,11 +6,13 @@ import (
 )
 
 type Config struct {
-	Port                         string
-	DatabaseURL                  string
-	AssemblyAIKey                string
-	AssemblyAIWSURL              string
-	AssemblyAISpeechModel        string
+	Port                  string
+	DatabaseURL           string
+	AssemblyAIKey         string
+	AssemblyAIWSURL       string
+	AssemblyAISpeechModel string
+	// Model kedua khusus diarization. Dikosongkan = mode satu stream.
+	AssemblyAIDiarizerModel      string
 	AssemblyAIRevisionIntervalMS int
 	LLMModel                     string
 	NudgeIntervalS               int
@@ -38,6 +40,7 @@ func Load() Config {
 		AssemblyAIKey:                env("ASSEMBLYAI_API_KEY", ""),
 		AssemblyAIWSURL:              env("ASSEMBLYAI_WS_URL", "wss://streaming.assemblyai.com/v3/ws"),
 		AssemblyAISpeechModel:        env("ASSEMBLYAI_SPEECH_MODEL", "whisper-rt"),
+		AssemblyAIDiarizerModel:      env("ASSEMBLYAI_DIARIZER_MODEL", "universal-streaming-multilingual"),
 		AssemblyAIRevisionIntervalMS: envInt("ASSEMBLYAI_SPEAKER_REVISION_INTERVAL_MS", 120000),
 		LLMModel:                     env("LLM_MODEL", "claude-sonnet-4-6"),
 		NudgeIntervalS:               envInt("NUDGE_INTERVAL_SECONDS", 45),

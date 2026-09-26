@@ -50,6 +50,23 @@ class SessionWsDataSource {
     _channel?.sink.add(Uint8List.fromList(pcm));
   }
 
+  /// Minta gateway menahan penilaian sampai dua suara dikenali.
+  void beginSpeakerCalibration() => _send({'type': 'begin_speaker_calibration'});
+
+  void confirmSpeakerRoles(String officerLabel, String customerLabel) => _send({
+        'type': 'confirm_speaker_roles',
+        'officer_label': officerLabel,
+        'customer_label': customerLabel,
+      });
+
+  /// Laporkan kualitas audio; alasan kosong berarti audio kembali sehat.
+  void reportAudioQuality(String reason) =>
+      _send({'type': 'audio_quality', 'reason': reason});
+
+  void _send(Map<String, String> command) {
+    _channel?.sink.add(jsonEncode(command));
+  }
+
   Future<void> disconnect() async {
     await _sub?.cancel();
     await _channel?.sink.close();
@@ -92,6 +109,19 @@ class SessionWsDataSource {
           json['evidence_id'] as String? ?? '',
         ),
       'nudge' => NudgeReceived(json['text'] as String? ?? ''),
+      'speaker_calibration_started' => const CalibrationStarted(),
+      'speaker_calibration_utterance' => CalibrationUtterance(
+          json['utterance_id'] as String? ?? '',
+          json['source_speaker'] as String? ?? '',
+          json['text'] as String? ?? '',
+        ),
+      // Partial kalibrasi sengaja diabaikan: hanya berguna untuk animasi,
+      // dan menampilkannya membuat kartu suara berkedip-kedip.
+      'speaker_calibration_partial' => const UnknownEvent(),
+      'speaker_roles_confirmed' => const SpeakerRolesConfirmed(),
+      'speaker_calibration_error' => CalibrationError(
+          json['message'] as String? ?? 'Kalibrasi gagal',
+        ),
       'speaker_unknown' => const SessionWarningReceived(
           'Ada ucapan dari suara yang tidak dikenali — tidak dihitung sebagai bukti',
         ),

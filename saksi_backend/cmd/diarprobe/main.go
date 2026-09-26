@@ -27,6 +27,7 @@ func main() {
 	model := flag.String("model", "whisper-rt", "speech_model")
 	interval := flag.Int("interval", 5000, "speaker_labels_revision_interval_ms")
 	maxSpeakers := flag.Int("max-speakers", 3, "max_speakers")
+	extra := flag.String("extra", "", "parameter tambahan, mis. language_code=id&format_turns=true")
 	flag.Parse()
 
 	key := os.Getenv("ASSEMBLYAI_API_KEY")
@@ -47,6 +48,17 @@ func main() {
 	q.Set("speaker_labels", "true")
 	q.Set("max_speakers", strconv.Itoa(*maxSpeakers))
 	q.Set("speaker_labels_revision_interval_ms", strconv.Itoa(*interval))
+
+	if *extra != "" {
+		more, err := url.ParseQuery(*extra)
+		if err != nil {
+			fmt.Println("extra tidak valid:", err)
+			os.Exit(2)
+		}
+		for k, vs := range more {
+			q.Set(k, vs[0])
+		}
+	}
 
 	endpoint := "wss://streaming.assemblyai.com/v3/ws?" + q.Encode()
 	fmt.Printf("model=%s interval=%d max_speakers=%d\n\n", *model, *interval, *maxSpeakers)

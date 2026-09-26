@@ -84,6 +84,21 @@ input {
 .calibration__sample small { margin-top: 3px; color: var(--muted); }
 .calibration__sample em { margin-top: 6px; color: var(--accent); font-size: .75rem; font-style: normal; font-weight: 700; }
 .calibration__waiting { color: var(--warn); font-size: .85rem; }
+.calibration__prompt { margin: 14px 0 6px; color: var(--text); font-size: .95rem; }
+.calibration__script {
+  margin: 0 0 12px; padding: 12px 14px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--accent); font-size: 1.05rem; font-weight: 600;
+}
+/* Suara yang sudah terdaftar: tenang dan final, bukan lagi meminta tindakan. */
+.calibration__done {
+  display: flex; gap: 12px; align-items: flex-start; margin: 12px 0;
+  padding: 12px 14px; border-radius: 10px;
+  background: rgba(110, 231, 183, .07); border: 1px solid var(--good);
+}
+.calibration__done strong { color: var(--good); }
+.calibration__done small { display: block; margin-top: 4px; color: var(--muted); }
+.calibration__check { color: var(--good); font-weight: 700; }
 .calibration__note { display: block; margin-top: 8px; color: var(--muted); text-align: center; }
 
 .demo-entry { display: grid; gap: 8px; margin-top: 12px; text-align: center; }
@@ -206,6 +221,11 @@ input {
 .line--officer strong { color: var(--officer); }
 .line--customer strong { color: var(--customer); }
 .line--partial { opacity: .55; font-style: italic; }
+.line__source {
+  margin-left: 4px; padding: 0 5px; border-radius: 4px;
+  background: var(--surface); color: var(--muted);
+  font-size: .65rem; font-weight: 700; vertical-align: 1px;
+}
 /* Badge, bukan teks kecil: momen koreksi label adalah bagian terdalam dari
    pipeline ini dan harus terbaca sekilas — termasuk di video terkompresi. */
 .line__revised {

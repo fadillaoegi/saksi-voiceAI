@@ -97,22 +97,6 @@ export function OfficerPage() {
     session?.status === 'active' && !demoMode ? session.id : null,
     'officer',
   )
-  const [officerSpeakerLabel, setOfficerSpeakerLabel] = useState<string | null>(null)
-  // Hanya label yang benar-benar dikenali yang boleh dipilih. Contoh yang
-  // belum bisa dilabeli kini ikut disimpan (supaya petugas tahu sistemnya
-  // mendengar), jadi daftar mentahnya tidak lagi aman dipakai langsung.
-  const recognisedLabels = [
-    ...new Set(
-      stream.calibrationSamples
-        .map((sample) => sample.sourceSpeaker)
-        .filter((label) => label && label !== 'UNKNOWN'),
-    ),
-  ].sort()
-
-  const effectiveOfficerSpeakerLabel =
-    officerSpeakerLabel && recognisedLabels.includes(officerSpeakerLabel)
-      ? officerSpeakerLabel
-      : (recognisedLabels[0] ?? null)
 
   function clearDemoTimers() {
     demoTimers.current.forEach((timer) => window.clearTimeout(timer))
@@ -136,6 +120,13 @@ export function OfficerPage() {
       dispatch(transcriptCleared())
       setReport(null)
       setReportError(null)
+      // Daftar kewajiban WAJIB dimuat ulang. `complianceReset()` di atas
+      // mengosongkannya, dan efek pemuatan awal hanya berjalan sekali saat
+      // login — jadi tanpa ini seluruh sesi berjalan dengan checklist kosong,
+      // dan kartu fokus menyatakan "Lengkap" padahal belum ada yang dinilai.
+      const obligations = await container.repositories.session.obligations()
+      dispatch(obligationsLoaded(obligations))
+
       const s = await container.usecases.startSession.execute('KREDIT-MULTIGUNA')
       dispatch(sessionStarted(s))
     } catch (e) {
@@ -233,17 +224,9 @@ export function OfficerPage() {
     setReport(null)
     setReportError(null)
     setDemoMode(false)
-    setOfficerSpeakerLabel(null)
   }
 
-  function handleConfirmSpeakerRoles() {
-    if (!effectiveOfficerSpeakerLabel) return
-    const customer = recognisedLabels.find(
-      (label) => label !== effectiveOfficerSpeakerLabel,
-    )
-    if (!customer) return
-    stream.confirmSpeakerRoles(effectiveOfficerSpeakerLabel, customer)
-  }
+
 
   return (
     <main className="page page--officer">
@@ -379,14 +362,11 @@ export function OfficerPage() {
           {!demoMode && stream.calibrationStatus !== 'confirmed' ? (
             <SpeakerCalibration
               samples={stream.calibrationSamples}
-              officerLabel={effectiveOfficerSpeakerLabel}
+              officerVoice={stream.officerVoice}
+              duplicateVoice={stream.duplicateVoice}
               error={stream.calibrationError}
-              onSelectOfficer={setOfficerSpeakerLabel}
-              onConfirm={handleConfirmSpeakerRoles}
-              onRestart={() => {
-                setOfficerSpeakerLabel(null)
-                stream.restartCalibration()
-              }}
+              onConfirm={stream.confirmSpeakerRoles}
+              onRestart={stream.restartCalibration}
             />
           ) : (
             <>

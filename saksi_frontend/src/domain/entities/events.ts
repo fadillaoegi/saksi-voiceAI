@@ -3,7 +3,7 @@ import type { Speaker } from './session'
 /** Event realtime yang dikirim gateway Go lewat WebSocket. */
 export type SessionEvent =
   | { type: 'partial'; speaker: Speaker; text: string }
-  | { type: 'utterance'; id: string; speaker: Speaker; text: string }
+  | { type: 'utterance'; id: string; speaker: Speaker; source_speaker?: string; text: string }
   | { type: 'speaker_revised'; utterance_id: string; speaker: Speaker }
   | { type: 'speaker_calibration_started' }
   | { type: 'speaker_calibration_partial'; utterance_id: string; source_speaker: string; text: string }

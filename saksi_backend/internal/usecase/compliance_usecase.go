@@ -36,7 +36,19 @@ type ComplianceUsecase struct {
 	// String kosong berarti audio sehat.
 	mu       sync.RWMutex
 	degraded map[string]string
+	// nudges menyimpan bisikan yang baru diucapkan per sesi, untuk mengenali
+	// gemanya sendiri. Lihat isNudgeEcho.
+	nudges map[string][]spokenNudge
 }
+
+type spokenNudge struct {
+	words map[string]struct{}
+	at    time.Time
+}
+
+// Bisikan yang lebih tua dari ini tidak mungkin lagi menjadi gema; TTS
+// diputar hampir seketika setelah dikirim.
+const nudgeEchoWindow = 20 * time.Second
 
 func NewComplianceUsecase(
 	c domain.ComplianceRepository,
@@ -55,6 +67,7 @@ func NewComplianceUsecase(
 		broadcaster: b,
 		obligations: domain.DefaultObligations(),
 		degraded:    make(map[string]string),
+		nudges:      make(map[string][]spokenNudge),
 	}
 }
 
@@ -105,8 +118,12 @@ func (uc *ComplianceUsecase) HandleTranscript(ctx context.Context, sessionID str
 	if err := uc.transcripts.Append(ctx, u); err != nil {
 		return err
 	}
+	// source_speaker ikut dikirim supaya label mentah diarization terlihat di
+	// UI. Tanpa itu, "semua Petugas" tidak bisa dibedakan antara satu suara
+	// yang memang bicara sendiri dan diarization yang gagal memisahkan.
 	uc.broadcaster.Publish(sessionID, map[string]any{
-		"type": "utterance", "id": u.ID, "speaker": u.Speaker, "text": u.Text,
+		"type": "utterance", "id": u.ID, "speaker": u.Speaker,
+		"source_speaker": u.SourceSpeaker, "text": u.Text,
 	})
 
 	// Pembicara tidak dikenal: label di luar dua hasil kalibrasi, atau ucapan
@@ -122,6 +139,20 @@ func (uc *ComplianceUsecase) HandleTranscript(ctx context.Context, sessionID str
 
 	// Butir kewajiban hanya bisa dipenuhi oleh PETUGAS, bukan nasabah.
 	if u.Speaker != domain.SpeakerOfficer {
+		return nil
+	}
+
+	// Bisikan aplikasi bisa terekam kembali kalau petugas memakai speaker
+	// alih-alih earphone. Kalau dibiarkan, sistem menilai suaranya sendiri:
+	// bisikan "Belum disampaikan: Denda keterlambatan" memuat kata "denda"
+	// dan "keterlambatan", sehingga evidence gate PENALTY akan cocok dan
+	// butir itu berubah hijau tanpa petugas pernah mengucapkannya. Untuk
+	// pelanggaran, gemanya bahkan akan tercatat sebagai pelanggaran kedua.
+	if uc.isNudgeEcho(sessionID, u.Text) {
+		uc.broadcaster.Publish(sessionID, map[string]any{
+			"type": "evidence_skipped", "utterance_id": u.ID,
+			"reason": "terdengar seperti gema bisikan aplikasi — pakai earphone",
+		})
 		return nil
 	}
 
@@ -159,6 +190,71 @@ func (uc *ComplianceUsecase) SetAudioQuality(sessionID, reason string) {
 	uc.broadcaster.Publish(sessionID, map[string]any{
 		"type": "audio_quality", "degraded": reason != "", "reason": reason,
 	})
+}
+
+// rememberNudge mencatat bisikan yang baru diucapkan.
+func (uc *ComplianceUsecase) rememberNudge(sessionID, text string) {
+	words := map[string]struct{}{}
+	for _, w := range strings.Fields(normalizeForEcho(text)) {
+		words[w] = struct{}{}
+	}
+	if len(words) == 0 {
+		return
+	}
+
+	uc.mu.Lock()
+	defer uc.mu.Unlock()
+	kept := uc.nudges[sessionID][:0]
+	for _, n := range uc.nudges[sessionID] {
+		if time.Since(n.at) < nudgeEchoWindow {
+			kept = append(kept, n)
+		}
+	}
+	uc.nudges[sessionID] = append(kept, spokenNudge{words: words, at: time.Now()})
+}
+
+// isNudgeEcho menebak apakah sebuah ucapan sebenarnya bisikan aplikasi yang
+// terekam balik.
+//
+// Perbandingannya per kata, bukan persis, karena STT jarang mentranskrip
+// suara TTS dengan sempurna. Ambang 0,6 dipilih longgar ke arah aman:
+// melewatkan satu ucapan sah hanya menunda satu butir, sedangkan meloloskan
+// gema membuat laporan mengklaim sesuatu yang tidak pernah diucapkan.
+func (uc *ComplianceUsecase) isNudgeEcho(sessionID, text string) bool {
+	fields := strings.Fields(normalizeForEcho(text))
+	if len(fields) < 2 {
+		return false
+	}
+
+	uc.mu.RLock()
+	defer uc.mu.RUnlock()
+	for _, n := range uc.nudges[sessionID] {
+		if time.Since(n.at) >= nudgeEchoWindow {
+			continue
+		}
+		matched := 0
+		for _, w := range fields {
+			if _, ok := n.words[w]; ok {
+				matched++
+			}
+		}
+		if float64(matched)/float64(len(fields)) >= 0.6 {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeForEcho(text string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(text) {
+		if r == ' ' || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune(' ')
+		}
+	}
+	return b.String()
 }
 
 func (uc *ComplianceUsecase) degradedReason(sessionID string) string {
@@ -213,7 +309,9 @@ func (uc *ComplianceUsecase) inspectGuardrail(ctx context.Context, sessionID str
 	uc.broadcaster.Publish(sessionID, map[string]any{
 		"type": "violation", "phrase": phrase, "severity": severity, "evidence_id": u.ID,
 	})
-	_ = uc.nudger.Whisper(ctx, sessionID, fmt.Sprintf("Hati-hati, hindari frasa %q.", phrase))
+	warning := fmt.Sprintf("Hati-hati, hindari frasa %q.", phrase)
+	uc.rememberNudge(sessionID, warning)
+	_ = uc.nudger.Whisper(ctx, sessionID, warning)
 }
 
 func (uc *ComplianceUsecase) evaluateObligations(ctx context.Context, sessionID string, u *domain.Utterance) error {
@@ -308,7 +406,9 @@ func (uc *ComplianceUsecase) RemindPending(ctx context.Context, sessionID string
 			continue
 		}
 		// Bisikkan satu butir saja per pengingat.
-		return uc.nudger.Whisper(ctx, sessionID, "Belum disampaikan: "+labels[st.Code])
+		reminder := "Belum disampaikan: " + labels[st.Code]
+		uc.rememberNudge(sessionID, reminder)
+		return uc.nudger.Whisper(ctx, sessionID, reminder)
 	}
 	return nil
 }

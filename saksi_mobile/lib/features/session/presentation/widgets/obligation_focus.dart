@@ -28,6 +28,37 @@ class ObligationFocus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Nol butir berarti daftarnya belum termuat, BUKAN semuanya terpenuhi.
+    // "Lengkap" pada checklist kosong adalah klaim palsu — kebalikan dari
+    // gunanya produk ini.
+    if (obligations.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
+        decoration: BoxDecoration(
+          color: BisikColors.surface,
+          border: Border.all(color: BisikColors.border),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('MEMUAT KEWAJIBAN',
+                style: TextStyle(
+                    color: BisikColors.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.6)),
+            SizedBox(height: 10),
+            Text('Menyiapkan…',
+                style: TextStyle(
+                    color: BisikColors.muted,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700)),
+          ],
+        ),
+      );
+    }
+
     final next = obligations
         .where((o) => o.status == ObligationStatus.pending)
         .firstOrNull;

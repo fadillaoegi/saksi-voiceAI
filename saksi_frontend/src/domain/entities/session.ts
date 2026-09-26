@@ -17,4 +17,6 @@ export interface Utterance {
   startMs: number
   /** true kalau label speaker pernah direvisi oleh diarization */
   revised: boolean
+  /** Label mentah diarization (mis. "A"/"B") — untuk verifikasi, bukan identitas. */
+  sourceSpeaker?: string
 }

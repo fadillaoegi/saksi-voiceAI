@@ -15,6 +15,7 @@ import (
 	"github.com/saksi/saksi_backend/internal/domain"
 	"github.com/saksi/saksi_backend/internal/infrastructure/assemblyai"
 	"github.com/saksi/saksi_backend/internal/infrastructure/auth"
+	"github.com/saksi/saksi_backend/internal/infrastructure/banner"
 	"github.com/saksi/saksi_backend/internal/infrastructure/config"
 	"github.com/saksi/saksi_backend/internal/infrastructure/db"
 	"github.com/saksi/saksi_backend/internal/infrastructure/logger"
@@ -53,13 +54,39 @@ func main() {
 	transcriptRepo := postgres.NewTranscriptRepo(pool)
 	complianceRepo := postgres.NewComplianceRepo(pool)
 
-	stt := assemblyai.NewStreamingSTT(
+	transcriber := assemblyai.NewStreamingSTT(
 		cfg.AssemblyAIKey,
 		cfg.AssemblyAIWSURL,
 		cfg.AssemblyAISpeechModel,
 		cfg.AssemblyAIRevisionIntervalMS,
 		log,
 	)
+
+	// Dua stream atas audio yang sama. Terbukti 25 Sep lewat cmd/diarprobe:
+	// whisper-rt memberi transkrip Indonesia bagus tetapi diarization-nya
+	// tidak berfungsi (semua pembicara dilabeli "A"), sedangkan model
+	// multilingual memisahkan pembicara dengan benar tetapi transkrip
+	// Indonesianya hancur. Tidak ada satu model pun yang memberi keduanya.
+	//
+	// Dikosongkan lewat ASSEMBLYAI_DIARIZER_MODEL untuk kembali ke satu
+	// stream — berguna kalau kuota menipis atau saat menyelisik masalah.
+	var stt usecase.SpeechToText = transcriber
+	if cfg.AssemblyAIDiarizerModel != "" {
+		diarizer := assemblyai.NewStreamingSTT(
+			cfg.AssemblyAIKey,
+			cfg.AssemblyAIWSURL,
+			cfg.AssemblyAIDiarizerModel,
+			cfg.AssemblyAIRevisionIntervalMS,
+			log,
+		)
+		stt = assemblyai.NewDualStreamSTT(transcriber, diarizer, log)
+		log.Info("mode dua stream aktif",
+			"transkrip", cfg.AssemblyAISpeechModel,
+			"diarization", cfg.AssemblyAIDiarizerModel)
+	} else {
+		log.Warn("mode satu stream: diarization mengikuti model transkrip",
+			"model", cfg.AssemblyAISpeechModel)
+	}
 	matcher := assemblyai.NewLLMMatcher(cfg.AssemblyAIKey, cfg.LLMModel)
 	guard := assemblyai.NewPhraseGuard()
 
@@ -94,6 +121,18 @@ func main() {
 		sessionUC, sessionRepo, complianceRepo, transcriptRepo, authUC, log)
 	router := adapterhttp.NewRouter(
 		httpHandler, wsHandler, signer, cfg.AllowedOrigins, cfg.StaticDir, log)
+
+	// Dicetak sebelum server jalan: model mana yang aktif adalah pertanyaan
+	// pertama saat sesuatu tidak beres, dan menjawabnya di sini lebih cepat
+	// daripada menyaring log atau membuka `.env`.
+	banner.Print(os.Stdout, banner.Config{
+		Port:            cfg.Port,
+		TranscriptModel: cfg.AssemblyAISpeechModel,
+		DiarizerModel:   cfg.AssemblyAIDiarizerModel,
+		LLMModel:        cfg.LLMModel,
+		StaticDir:       cfg.StaticDir,
+		AuthConfigured:  cfg.AuthSecret != "",
+	})
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

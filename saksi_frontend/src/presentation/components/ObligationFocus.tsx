@@ -22,6 +22,18 @@ const hint: Record<string, string> = {
  * hanya kewajiban berikutnya yang tampil besar; sisanya cukup jadi titik.
  */
 export function ObligationFocus({ items }: { items: Obligation[] }) {
+  // Nol butir berarti daftarnya belum termuat, BUKAN semuanya terpenuhi.
+  // Membedakan keduanya penting: "Lengkap" pada checklist kosong adalah
+  // klaim palsu, dan itu justru kebalikan dari gunanya produk ini.
+  if (items.length === 0) {
+    return (
+      <section className="focus">
+        <p className="focus__eyebrow">Memuat kewajiban</p>
+        <h2 className="focus__title">Menyiapkan…</h2>
+      </section>
+    )
+  }
+
   const next = items.find((o) => o.status === 'pending')
   const satisfied = items.filter((o) => o.status === 'satisfied').length
 

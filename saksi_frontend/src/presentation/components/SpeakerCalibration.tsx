@@ -6,110 +6,116 @@ interface CalibrationSample {
 
 interface Props {
   samples: CalibrationSample[]
-  officerLabel: string | null
+  /** Suara yang sudah terdaftar sebagai petugas; null = langkah 1 belum selesai. */
+  officerVoice: string | null
+  /** Suara yang sama terdengar lagi saat menunggu orang kedua. */
+  duplicateVoice: boolean
   error: string | null
-  onSelectOfficer: (label: string) => void
-  onConfirm: () => void
+  onConfirm: (officerLabel: string, customerLabel: string) => void
   onRestart: () => void
 }
 
-/** Satu kartu per SUARA, bukan per ucapan — satu suara bisa bicara berkali-kali. */
-function distinctVoices(samples: CalibrationSample[]) {
-  const byLabel = new Map<string, CalibrationSample>()
+/** Ucapan terakhir per suara — satu orang bisa bicara berkali-kali. */
+function lastUtteranceByVoice(samples: CalibrationSample[]) {
+  const byLabel = new Map<string, string>()
   for (const sample of samples) {
-    if (!sample.sourceSpeaker || sample.sourceSpeaker === 'UNKNOWN') continue
-    // Simpan ucapan terakhir: biasanya paling panjang dan paling enak dibaca.
-    byLabel.set(sample.sourceSpeaker, sample)
+    if (!sample.sourceSpeaker) continue
+    if (sample.text) byLabel.set(sample.sourceSpeaker, sample.text)
   }
-  return [...byLabel.values()].sort((a, b) =>
-    a.sourceSpeaker.localeCompare(b.sourceSpeaker),
-  )
+  return byLabel
 }
 
 export function SpeakerCalibration({
   samples,
-  officerLabel,
+  officerVoice,
+  duplicateVoice,
   error,
-  onSelectOfficer,
   onConfirm,
   onRestart,
 }: Props) {
-  const voices = distinctVoices(samples)
-  // Ucapan yang terdengar tetapi belum bisa dilabeli. Dulu ini dibuang
-  // diam-diam, sehingga petugas menatap layar yang tidak berubah tanpa tahu
-  // kenapa — padahal sistemnya sedang mendengar.
-  const unlabelled = samples.length - voices.length
+  const utterances = lastUtteranceByVoice(samples)
+  const voices = [...utterances.keys()].sort()
 
-  const customerLabel = voices
-    .map((v) => v.sourceSpeaker)
-    .find((label) => label !== officerLabel) ?? null
-  const ready = voices.length >= 2 && officerLabel !== null && customerLabel !== null
+  // Kalau label petugas hilang karena diarization merevisinya, jangan
+  // berpegang pada label yang sudah tidak ada — mundur ke langkah satu.
+  const officer = officerVoice && voices.includes(officerVoice) ? officerVoice : null
+  const customer = officer ? (voices.find((v) => v !== officer) ?? null) : null
+
+  const step = officer === null ? 1 : customer === null ? 2 : 3
 
   return (
     <section className="calibration" aria-labelledby="calibration-title">
-      <p className="calibration__eyebrow">Langkah keamanan · belum dinilai</p>
+      <p className="calibration__eyebrow">
+        Langkah keamanan · belum dinilai{step < 3 && ` · langkah ${step} dari 2`}
+      </p>
       <h2 id="calibration-title">Kenali dua suara</h2>
-      <ol className="calibration__steps">
-        <li>Petugas ucapkan satu kalimat penuh, minimal 3 detik.</li>
-        <li>Nasabah ucapkan satu kalimat penuh, minimal 3 detik.</li>
-        <li>Jangan bicara bersamaan, beri jeda sekitar satu detik.</li>
-      </ol>
 
-      {voices.length === 0 ? (
-        <p className="calibration__waiting">Mendengarkan…</p>
+      {/* LANGKAH 1 — petugas */}
+      {step === 1 ? (
+        <>
+          <p className="calibration__prompt">
+            <strong>Petugas</strong>, ucapkan kalimat ini dengan jelas:
+          </p>
+          <p className="calibration__script">“Saya petugas yang menjalankan sesi ini.”</p>
+          <p className="calibration__waiting">Mendengarkan suara petugas…</p>
+        </>
       ) : (
-        <div className="calibration__samples">
-          {voices.map((voice) => (
-            <label
-              key={voice.sourceSpeaker}
-              className={`calibration__sample ${
-                officerLabel === voice.sourceSpeaker ? 'calibration__sample--selected' : ''
-              }`}
-            >
-              <input
-                type="radio"
-                name="officer-speaker"
-                checked={officerLabel === voice.sourceSpeaker}
-                onChange={() => onSelectOfficer(voice.sourceSpeaker)}
-              />
-              <span>
-                <strong>Suara {voice.sourceSpeaker}</strong>
-                <small>{voice.text}</small>
-                <em>{officerLabel === voice.sourceSpeaker ? 'Petugas' : 'Nasabah'}</em>
-              </span>
-            </label>
-          ))}
+        <div className="calibration__done">
+          <span className="calibration__check">✓</span>
+          <span>
+            <strong>Petugas terdaftar</strong> · Suara {officer}
+            <small>{utterances.get(officer!)}</small>
+          </span>
         </div>
       )}
 
-      {voices.length === 1 && (
-        <p className="calibration__waiting">
-          Baru satu suara yang dikenali. Minta orang kedua bicara lebih lama —
-          kalimat pendek sering belum cukup bagi model untuk memisahkan suara.
-        </p>
+      {/* LANGKAH 2 — nasabah */}
+      {step === 2 && (
+        <>
+          <p className="calibration__prompt">
+            Sekarang giliran <strong>nasabah</strong>. Ucapkan:
+          </p>
+          <p className="calibration__script">“Saya nasabah dan siap memulai.”</p>
+          {duplicateVoice ? (
+            <p className="warn-box">
+              Suara itu sudah terdaftar sebagai petugas. Minta <strong>orang
+              kedua</strong> yang berbicara — sistem perlu mendengar suara yang
+              berbeda untuk bisa membedakan keduanya.
+            </p>
+          ) : (
+            <p className="calibration__waiting">Mendengarkan suara nasabah…</p>
+          )}
+        </>
       )}
 
-      {unlabelled > 0 && (
-        <p className="calibration__waiting">
-          {unlabelled} ucapan terdengar tetapi belum bisa dipisahkan sebagai suara
-          tersendiri. Bicara lebih panjang dan lebih jelas, atau ulangi kalibrasi.
-        </p>
+      {step === 3 && (
+        <div className="calibration__done">
+          <span className="calibration__check">✓</span>
+          <span>
+            <strong>Nasabah terdaftar</strong> · Suara {customer}
+            <small>{utterances.get(customer!)}</small>
+          </span>
+        </div>
       )}
 
       {error && <p className="error-box">Kalibrasi gagal: {error}</p>}
 
-      <button className="btn btn--primary btn--wide" disabled={!ready} onClick={onConfirm}>
-        {ready ? 'Konfirmasi dan mulai penilaian' : 'Menunggu dua suara'}
+      <button
+        className="btn btn--primary btn--wide"
+        disabled={step !== 3}
+        onClick={() => officer && customer && onConfirm(officer, customer)}
+      >
+        {step === 3 ? 'Konfirmasi dan mulai penilaian' : 'Menunggu dua suara'}
       </button>
 
-      {/* Jalan keluar. Tanpa ini petugas terjebak selamanya kalau diarization
-          tidak pernah memberi label kedua. */}
+      {/* Jalan keluar kalau orang yang salah bicara duluan, atau kalau suara
+          kedua tidak pernah terpisah. */}
       <button className="btn--link" onClick={onRestart}>
         Ulangi kalibrasi dari awal
       </button>
 
       <small className="calibration__note">
-        Pilih contoh yang benar-benar diucapkan petugas. Ucapan kalibrasi tidak masuk laporan.
+        Ucapan kalibrasi tidak masuk laporan dan tidak dinilai.
       </small>
     </section>
   )

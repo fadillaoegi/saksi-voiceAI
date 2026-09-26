@@ -41,6 +41,30 @@ class NudgeReceived extends SessionEvent {
   final String text;
 }
 
+/// Kalibrasi dimulai: gateway menahan penilaian sampai dua suara dikenali.
+class CalibrationStarted extends SessionEvent {
+  const CalibrationStarted();
+}
+
+/// Satu contoh suara saat kalibrasi. `sourceSpeaker` adalah label mentah
+/// diarization (mis. "A"/"B") — belum berarti petugas atau nasabah.
+class CalibrationUtterance extends SessionEvent {
+  const CalibrationUtterance(this.utteranceId, this.sourceSpeaker, this.text);
+  final String utteranceId;
+  final String sourceSpeaker;
+  final String text;
+}
+
+/// Mapping peran sudah dikunci; penilaian boleh dimulai.
+class SpeakerRolesConfirmed extends SessionEvent {
+  const SpeakerRolesConfirmed();
+}
+
+class CalibrationError extends SessionEvent {
+  const CalibrationError(this.message);
+  final String message;
+}
+
 /// Bagian percakapan sengaja tidak dihitung sebagai bukti kepatuhan:
 /// pembicara tidak dikenal, atau audio tidak layak. Flutter belum punya
 /// panel khusus, jadi ketiganya masuk ke satu slot peringatan.

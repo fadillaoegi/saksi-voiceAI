@@ -9,6 +9,7 @@ import '../providers/session_state.dart';
 import '../widgets/obligation_focus.dart';
 import '../widgets/obligation_tile.dart';
 import '../widgets/report_view.dart';
+import '../widgets/speaker_calibration.dart';
 import '../widgets/transcript_list.dart';
 
 class OfficerPage extends ConsumerStatefulWidget {
@@ -78,30 +79,27 @@ class _OfficerPageState extends ConsumerState<OfficerPage> {
         child: running
             ? _buildActive(state, controller)
             : state.loadingReport
-                ? _buildLoadingReport()
-                : state.report != null
-                    ? ReportView(
-                        report: state.report!,
-                        onReset: controller.reset,
-                      )
-                    : _buildIdle(state, controller),
+            ? _buildLoadingReport()
+            : state.report != null
+            ? ReportView(report: state.report!, onReset: controller.reset)
+            : _buildIdle(state, controller),
       ),
     );
   }
 
   Widget _buildLoadingReport() => const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            BisikWave(height: 26),
-            SizedBox(height: 16),
-            Text(
-              'Menyiapkan laporan berbukti…',
-              style: TextStyle(color: BisikColors.muted, fontSize: 15),
-            ),
-          ],
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        BisikWave(height: 26),
+        SizedBox(height: 16),
+        Text(
+          'Menyiapkan laporan berbukti…',
+          style: TextStyle(color: BisikColors.muted, fontSize: 15),
         ),
-      );
+      ],
+    ),
+  );
 
   Widget _buildIdle(SessionState state, SessionController controller) {
     return Column(
@@ -161,9 +159,11 @@ class _OfficerPageState extends ConsumerState<OfficerPage> {
       children: [
         Row(
           children: [
-            Icon(Icons.circle,
-                size: 8,
-                color: state.connected ? BisikColors.good : BisikColors.muted),
+            Icon(
+              Icons.circle,
+              size: 8,
+              color: state.connected ? BisikColors.good : BisikColors.muted,
+            ),
             const SizedBox(width: 8),
             Text(
               '${state.connected ? "Terhubung" : "Menyambung…"} · '
@@ -191,36 +191,52 @@ class _OfficerPageState extends ConsumerState<OfficerPage> {
           ),
         ],
         const SizedBox(height: 16),
-        ObligationFocus(obligations: state.obligations),
-        const SizedBox(height: 8),
-        // Rincian dan transkrip diturunkan ke balik disclosure: saat sesi
-        // berjalan keduanya mengganggu, saat meninjau baru berguna.
-        Expanded(
-          child: ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              _Disclosure(
-                title: 'Rincian kewajiban',
-                child: Column(
-                  children: [
-                    for (final o in state.obligations)
-                      ObligationTile(obligation: o),
-                  ],
-                ),
+
+        // Sebelum peran dikunci, kalibrasi menggantikan checklist. Menampilkan
+        // checklist lebih dulu memberi kesan penilaian sudah berjalan,
+        // padahal gateway masih menahan seluruh scoring.
+        if (state.calibration != CalibrationStatus.confirmed)
+          Expanded(
+            child: SingleChildScrollView(
+              child: SpeakerCalibration(
+                state: state,
+                onConfirm: controller.confirmSpeakerRoles,
+                onRestart: controller.restartCalibration,
               ),
-              _Disclosure(
-                title: 'Transkrip',
-                child: SizedBox(
-                  height: 260,
-                  child: TranscriptList(
-                    utterances: state.utterances,
-                    partial: state.partial,
+            ),
+          )
+        else ...[
+          ObligationFocus(obligations: state.obligations),
+          const SizedBox(height: 8),
+          // Rincian dan transkrip diturunkan ke balik disclosure: saat sesi
+          // berjalan keduanya mengganggu, saat meninjau baru berguna.
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                _Disclosure(
+                  title: 'Rincian kewajiban',
+                  child: Column(
+                    children: [
+                      for (final o in state.obligations)
+                        ObligationTile(obligation: o),
+                    ],
                   ),
                 ),
-              ),
-            ],
+                _Disclosure(
+                  title: 'Transkrip',
+                  child: SizedBox(
+                    height: 260,
+                    child: TranscriptList(
+                      utterances: state.utterances,
+                      partial: state.partial,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
         const SizedBox(height: 12),
         OutlinedButton(
           onPressed: controller.end,

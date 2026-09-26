@@ -44,6 +44,13 @@ class SessionRepositoryImpl implements SessionRepository {
 
   /// Dipakai controller untuk meneruskan frame mikrofon ke gateway.
   void pushAudio(List<int> pcm) => _ws.sendAudio(pcm);
+
+  void beginSpeakerCalibration() => _ws.beginSpeakerCalibration();
+
+  void confirmSpeakerRoles(String officerLabel, String customerLabel) =>
+      _ws.confirmSpeakerRoles(officerLabel, customerLabel);
+
+  void reportAudioQuality(String reason) => _ws.reportAudioQuality(reason);
 }
 
 class AudioRepositoryImpl implements AudioRepository {

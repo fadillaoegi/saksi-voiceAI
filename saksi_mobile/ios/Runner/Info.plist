@@ -8,6 +8,27 @@
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<!--
+		Gateway lokal berjalan di HTTP polos saat pengembangan, dan iOS
+		memblokir cleartext secara bawaan. Tanpa ini, koneksi ke IP LAN
+		gagal tanpa pesan yang berguna.
+		Deployment produksi memakai HTTPS lewat Render, jadi pengecualian
+		ini hanya melayani pengujian di perangkat.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<!--
+		iOS 14+ meminta izin eksplisit untuk menghubungi perangkat di jaringan
+		lokal. Tanpa kunci ini dialog izin tidak pernah muncul dan koneksi ke
+		laptop diblokir diam-diam.
+	-->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Bisik menghubungi gateway Bisik di jaringan lokal yang sama saat pengujian di perangkat.</string>
 	<key>CFBundleDisplayName</key>
 	<string>Bisik</string>
 	<key>CFBundleExecutable</key>

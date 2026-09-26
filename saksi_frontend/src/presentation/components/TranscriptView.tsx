@@ -16,7 +16,11 @@ export function TranscriptView({ utterances, partial }: Props) {
     <div className="transcript">
       {utterances.map((u) => (
         <p key={u.id} className={`line line--${u.speaker}`}>
-          <strong>{speakerLabel[u.speaker]}</strong> {u.text}
+          <strong>{speakerLabel[u.speaker]}</strong>
+          {/* Label mentah diarization. Kecil dan redup: alat verifikasi,
+              bukan informasi yang dibutuhkan petugas saat bicara. */}
+          {u.sourceSpeaker && <span className="line__source">{u.sourceSpeaker}</span>}{' '}
+          {u.text}
           {/* Label direvisi diarization — tonjolkan, jangan disembunyikan */}
           {u.revised && <em className="line__revised">label dikoreksi</em>}
         </p>

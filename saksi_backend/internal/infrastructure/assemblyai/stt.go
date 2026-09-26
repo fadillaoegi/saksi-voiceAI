@@ -260,7 +260,7 @@ func (s *StreamingSTT) readLoop(ctx context.Context, sessionID string, stream *s
 				s.log.Info("turn mentah", "session", sessionID, "ke", turnsSeen,
 					"payload", string(raw))
 			}
-			if m.SpeakerLabel == "" || m.SpeakerLabel == "UNKNOWN" {
+			if usableLabel(m.SpeakerLabel) == "" {
 				turnsWithoutLabel++
 				if labelFromWords(m.Words) == "" {
 					s.log.Warn("turn tanpa label pembicara",
@@ -273,11 +273,9 @@ func (s *StreamingSTT) readLoop(ctx context.Context, sessionID string, stream *s
 				}
 			}
 			start, end := spanOf(m.Words)
-			label := m.SpeakerLabel
-			if label == "" || label == "UNKNOWN" {
-				if fallback := labelFromWords(m.Words); fallback != "" {
-					label = fallback
-				}
+			label := usableLabel(m.SpeakerLabel)
+			if label == "" {
+				label = labelFromWords(m.Words)
 			}
 			role, calibrating := s.resolveSpeaker(sessionID, label, m.TurnOrder)
 			if !emitTranscriptEvent(ctx, out, usecase.TranscriptEvent{
@@ -297,11 +295,9 @@ func (s *StreamingSTT) readLoop(ctx context.Context, sessionID string, stream *s
 		// sebelumnya. Hanya turn yang berubah yang dikirim.
 		case "SpeakerRevision":
 			for _, rev := range m.Revisions {
-				label := rev.SpeakerLabel
-				if label == "" || label == "UNKNOWN" {
-					if fallback := labelFromWords(rev.Words); fallback != "" {
-						label = fallback
-					}
+				label := usableLabel(rev.SpeakerLabel)
+				if label == "" {
+					label = labelFromWords(rev.Words)
 				}
 
 				// Revisi untuk turn kalibrasi dulu DIBUANG di sini, dan itu
@@ -313,12 +309,19 @@ func (s *StreamingSTT) readLoop(ctx context.Context, sessionID string, stream *s
 				// mengoreksinya lewat SpeakerRevision. Kalibrasi terjadi
 				// persis di detik-detik awal itu — jadi revisi inilah
 				// satu-satunya cara sistem tahu ada dua suara.
+				// Rentang waktu WAJIB ikut. Penggabung dua stream menjodohkan
+				// teks dengan label berdasarkan waktu; revisi tanpa rentang
+				// akan dibuang diam-diam dan labelnya tidak pernah sampai.
+				revStart, revEnd := spanOf(rev.Words)
+
 				if s.isCalibrationTurn(sessionID, rev.TurnOrder) {
 					if !emitTranscriptEvent(ctx, out, usecase.TranscriptEvent{
 						UtteranceID:   utteranceID(sessionID, rev.TurnOrder),
 						Speaker:       domain.SpeakerUnknown,
 						SourceSpeaker: label,
 						Text:          textFromWords(rev.Words),
+						StartMS:       revStart,
+						EndMS:         revEnd,
 						IsFinal:       true,
 						IsCalibration: true,
 					}) {
@@ -332,6 +335,8 @@ func (s *StreamingSTT) readLoop(ctx context.Context, sessionID string, stream *s
 					UtteranceID:   utteranceID(sessionID, rev.TurnOrder),
 					Speaker:       role,
 					SourceSpeaker: label,
+					StartMS:       revStart,
+					EndMS:         revEnd,
 					IsFinal:       true,
 					IsRevision:    true,
 				}) {
@@ -383,7 +388,7 @@ func utteranceID(sessionID string, turnOrder int) string {
 func labelFromWords(words []wsWord) string {
 	counts := map[string]int{}
 	for _, w := range words {
-		if w.Speaker != "" && w.Speaker != "UNKNOWN" {
+		if usableLabel(w.Speaker) != "" {
 			counts[w.Speaker]++
 		}
 	}
@@ -417,8 +422,53 @@ func spanOf(words []wsWord) (int, int) {
 
 // resolveSpeaker memetakan label diarization ke role. Dalam mode kalibrasi,
 // label belum dipercaya: semua ucapan menjadi unknown dan tidak dinilai.
+// usableLabel menyaring label yang BELUM merupakan identitas pembicara.
+//
+// `UNKNOWN` dipakai model untuk ucapan terlalu pendek. `PENDING` dipakai
+// Universal Streaming saat ia belum memutuskan, lalu dikoreksi lewat
+// SpeakerRevision. Keduanya harus diperlakukan sebagai "belum tahu" —
+// membiarkan `PENDING` lolos akan memunculkan kartu suara hantu di kalibrasi
+// dan, lebih buruk, memberinya role.
+func usableLabel(label string) string {
+	switch label {
+	case "", "UNKNOWN", "PENDING":
+		return ""
+	}
+	return label
+}
+
+// ResolveLabelRole memetakan label mentah ke role TANPA menandai turn
+// kalibrasi. Dipakai penggabung dua stream, yang nomor turn-nya berasal dari
+// koneksi lain sehingga tidak boleh ikut menandai turn di sini.
+func (s *StreamingSTT) ResolveLabelRole(sessionID, label string) (domain.Speaker, bool) {
+	if usableLabel(label) == "" {
+		return domain.SpeakerUnknown, s.isCalibrating(sessionID)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, ok := s.speakers[sessionID]
+	if !ok {
+		return domain.SpeakerUnknown, false
+	}
+	if state.calibrating {
+		return domain.SpeakerUnknown, true
+	}
+	if role, ok := state.roles[label]; ok {
+		return role, false
+	}
+	if state.confirmed {
+		return domain.SpeakerUnknown, false
+	}
+	if len(state.roles) == 0 {
+		state.roles[label] = domain.SpeakerOfficer
+	} else {
+		state.roles[label] = domain.SpeakerCustomer
+	}
+	return state.roles[label], false
+}
+
 func (s *StreamingSTT) resolveSpeaker(sessionID, label string, turnOrder int) (domain.Speaker, bool) {
-	if label == "" || label == "UNKNOWN" {
+	if usableLabel(label) == "" {
 		return domain.SpeakerUnknown, s.isCalibrating(sessionID)
 	}
 

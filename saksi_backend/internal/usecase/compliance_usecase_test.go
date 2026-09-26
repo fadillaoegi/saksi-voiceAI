@@ -105,6 +105,8 @@ type broadcasterFake struct{ events []any }
 
 func (f *broadcasterFake) Publish(_ string, event any) { f.events = append(f.events, event) }
 
+const sessionIDForTest = "sesi-1"
+
 func pendingState(code string) []*domain.ObligationState {
 	return []*domain.ObligationState{{SessionID: "sesi-1", Code: code, Status: domain.ObligationPending}}
 }
@@ -400,5 +402,100 @@ func TestSetAudioQualityHanyaMenyiarkanSaatBerubah(t *testing.T) {
 	uc.SetAudioQuality("sesi-1", "")
 	if got := countEventType(broadcaster.events, "audio_quality"); got != 2 {
 		t.Fatalf("audio_quality disiarkan %d kali, mau 2 — pemulihan harus diumumkan", got)
+	}
+}
+
+// Bisikan aplikasi bisa terekam balik kalau petugas memakai speaker.
+// Kalau dibiarkan, sistem menilai suaranya sendiri: bisikan
+// "Belum disampaikan: Denda keterlambatan" memuat kata "denda" dan
+// "keterlambatan", yang persis dicari evidence gate PENALTY.
+func TestGemaBisikanTidakBolehMemenuhiKewajiban(t *testing.T) {
+	matcher := &matcherFake{matched: true, confidence: 0.99}
+	uc, compliance, broadcaster := newComplianceTestUsecaseWithEvents(
+		pendingState("PENALTY"), matcher, &guardFake{},
+	)
+	ctx := context.Background()
+
+	// Pengingat berkala diucapkan…
+	if err := uc.RemindPending(ctx, sessionIDForTest); err != nil {
+		t.Fatalf("RemindPending(): %v", err)
+	}
+
+	// …lalu mikrofon menangkapnya kembali, nyaris kata per kata.
+	err := uc.HandleTranscript(ctx, sessionIDForTest, TranscriptEvent{
+		UtteranceID: "u-1", Speaker: domain.SpeakerOfficer,
+		Text: "belum disampaikan denda keterlambatan", IsFinal: true,
+	})
+	if err != nil {
+		t.Fatalf("HandleTranscript(): %v", err)
+	}
+
+	if len(compliance.marked) != 0 {
+		t.Fatalf("marked = %v, mau kosong — itu suara aplikasi sendiri", compliance.marked)
+	}
+	if matcher.calls != 0 {
+		t.Fatalf("matcher dipanggil %d kali, mau 0", matcher.calls)
+	}
+	if countEventType(broadcaster.events, "evidence_skipped") != 1 {
+		t.Fatal("petugas tidak diberi tahu ucapan itu dilewati")
+	}
+}
+
+// Gema juga tidak boleh dicatat sebagai pelanggaran kedua: bisikan koreksi
+// mengutip frasa terlarangnya, jadi guardrail akan cocok lagi.
+func TestGemaPeringatanTidakMenggandakanPelanggaran(t *testing.T) {
+	guard := &guardFake{phrase: "pasti cair", severity: "high", found: true}
+	uc, compliance, _ := newComplianceTestUsecaseWithEvents(
+		pendingState("RATE"), &matcherFake{}, guard,
+	)
+	ctx := context.Background()
+
+	// Pelanggaran pertama, sah.
+	if err := uc.HandleTranscript(ctx, sessionIDForTest, TranscriptEvent{
+		UtteranceID: "u-1", Speaker: domain.SpeakerOfficer,
+		Text: "dana bapak pasti cair minggu ini", IsFinal: true,
+	}); err != nil {
+		t.Fatalf("HandleTranscript(): %v", err)
+	}
+	if len(compliance.violations) != 1 {
+		t.Fatalf("violations = %d, mau 1", len(compliance.violations))
+	}
+
+	// Bisikan koreksi tertangkap balik oleh mikrofon.
+	if err := uc.HandleTranscript(ctx, sessionIDForTest, TranscriptEvent{
+		UtteranceID: "u-2", Speaker: domain.SpeakerOfficer,
+		Text: "hati hati hindari frasa pasti cair", IsFinal: true,
+	}); err != nil {
+		t.Fatalf("HandleTranscript(): %v", err)
+	}
+	if len(compliance.violations) != 1 {
+		t.Fatalf("violations = %d, mau tetap 1 — yang kedua itu gema",
+			len(compliance.violations))
+	}
+}
+
+// Ucapan sah yang kebetulan memakai satu dua kata yang sama TIDAK boleh
+// ikut dibuang; ambangnya harus membedakan gema dari kalimat biasa.
+func TestUcapanSahTidakDikiraGema(t *testing.T) {
+	matcher := &matcherFake{matched: true, confidence: 0.95}
+	uc, compliance, _ := newComplianceTestUsecaseWithEvents(
+		pendingState("PENALTY"), matcher, &guardFake{},
+	)
+	ctx := context.Background()
+
+	if err := uc.RemindPending(ctx, sessionIDForTest); err != nil {
+		t.Fatalf("RemindPending(): %v", err)
+	}
+
+	if err := uc.HandleTranscript(ctx, sessionIDForTest, TranscriptEvent{
+		UtteranceID: "u-1", Speaker: domain.SpeakerOfficer,
+		Text: "kalau bapak terlambat membayar cicilan maka ada denda " +
+			"nol koma satu persen per hari dari sisa tagihan", IsFinal: true,
+	}); err != nil {
+		t.Fatalf("HandleTranscript(): %v", err)
+	}
+
+	if len(compliance.marked) != 1 || compliance.marked[0] != "PENALTY" {
+		t.Fatalf("marked = %v, mau [PENALTY] — kalimat petugas yang sah", compliance.marked)
 	}
 }
